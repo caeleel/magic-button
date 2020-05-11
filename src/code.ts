@@ -13,6 +13,8 @@ async function run() {
 function main() {
   figma.showUI(__html__, {width: 360, height: 640});
   run()
+
+  sendToNetlify({ paths: new Map(), blobs: new Map() });
 }
 
 interface PackagedWebsite {
@@ -23,7 +25,17 @@ interface PackagedWebsite {
   blobs: Map<string, Uint8Array>
 }
 
-function sendToNetlify(website: PackagedWebsite) {
+async function sendToNetlify(website: PackagedWebsite) {
+  const token: string | undefined = await figma.clientStorage.getAsync("netlify_token");
+  if (token == null) {
+    figma.ui.on("message", (message) => {
+      if (message.type === "token-response") {
+        figma.clientStorage.setAsync("netlify_token", message.token);
+      }
+    });
+  } else {
+    figma.ui.postMessage({ type: "token", token });
+  }
 }
 
 main();
