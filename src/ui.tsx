@@ -11,10 +11,10 @@ function App() {
 
   useEffect(() => {
     function handleMessage(ev: MessageEvent) {
-      const msg = ev.data.pluginMessage;
+      const msg = ev.data.pluginMessage
       if (msg.type === "token") {
-        setToken(msg.token);
-        return;
+        setToken(msg.token)
+        return
       }
 
       console.log("DATA", ev.data)
@@ -28,17 +28,22 @@ function App() {
 
   const pollForToken = async () => {
     try {
-      const resp = await fetch(`https://oauth-helper.netlify.app/.netlify/functions/fetch?key=${randomKey}`);
+      const resp = await fetch(`https://oauth-helper.netlify.app/.netlify/functions/fetch?key=${randomKey}`)
+      if (resp.status === 400) {
+        setTimeout(pollForToken, 2000)
+        return
+      }
       const result = await resp.json()
-      setToken(result.token);
+      setToken(result.token)
+      parent.postMessage({ pluginMessage: { type: "token-response", token: result.token } }, '*')
     } catch (e) {
-      setTimeout(pollForToken, 2000);
+      setTimeout(pollForToken, 2000)
     }
   }
 
   const tryConnect = () => {
-    window.open(`https://oauth-helper.netlify.app/?key=${randomKey}`);
-    setTimeout(pollForToken, 2000);
+    window.open(`https://oauth-helper.netlify.app/?key=${randomKey}`)
+    setTimeout(pollForToken, 2000)
   }
 
   return <div>
