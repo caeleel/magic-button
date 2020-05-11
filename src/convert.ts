@@ -1,8 +1,23 @@
+function toStyleString(style: CSS): string {
+  return Object.keys(style).map(key => {
+    return `${key}: ${style[key]}`
+  }).join(`;`)
+}
+
+function h(tagName: string, name: string, style: CSS, content: string) {
+  // TODO(jlfwong): Remove the name=... for debugging
+  return `<${tagName} name="${name}" style="${toStyleString(style)}">${content}</${tagName}>`
+}
+
 export async function convert(node: DocumentNode): Promise<string> {
   return await convertNode(node)
 }
 
 async function convertNode(node: BaseNode): Promise<string> {
+  if ('visible' in node && !node.visible) {
+    return ""
+  }
+
   switch (node.type) {
     case "DOCUMENT":
       return await convertDocument(node)
@@ -40,21 +55,21 @@ async function convertChildren(children: ReadonlyArray<BaseNode>): Promise<strin
 }
 
 async function convertDocument(node: DocumentNode): Promise<string> {
-  return `<div>
-    ${await convertChildren(node.children)}
-  </div>`
+  return h("div", node.name, {}, await convertChildren(node.children))
 }
 
 async function convertPage(node: PageNode): Promise<string> {
-  return `<div>
-    ${await convertChildren(node.children)}
-  </div>`
+  return h("div", node.name, {}, await convertChildren(node.children))
 }
 
 async function convertFrame(node: FrameNode | GroupNode | ComponentNode | InstanceNode): Promise<string> {
-  return `<div>
-    ${await convertChildren(node.children)}
-  </div>`
+  const shouldWrapChildrenWithLayout = node.parent?.type !== "PAGE" && node.type !== "GROUP"
+
+  const style = {
+    ...getOpacityStyle(node),
+    ...(shouldWrapChildrenWithLayout ? getLayoutStyle(node) : {})
+  }
+  return h("div", node.name, style, await convertChildren(node.children))
 }
 
 function arrayBufferToString(buffer: ArrayBuffer): string {
@@ -62,27 +77,76 @@ function arrayBufferToString(buffer: ArrayBuffer): string {
 }
 
 async function convertRectangle(node: RectangleNode): Promise<string> {
-  return `<div></div>`
+  const style = {
+    ...getOpacityStyle(node),
+    ...getLayoutStyle(node)
+  }
+  return h("div", node.name, style, "")
 }
 
-async function convertShape(node: DefaultShapeMixin): Promise<string> {
+async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string> {
+  // We don't include opacity here because it gets baked into the node
+  const style = getLayoutStyle(node)
   try {
     const svg = await node.exportAsync({format: 'SVG'})
-    return arrayBufferToString(svg)
+    return h("div", node.name, style, arrayBufferToString(svg))
   } catch(e) {
     console.error("Failed to convert shape", node, e)
     return ""
   }
 }
 
+function colorFromPaints(fills: ReadonlyArray<Paint>): string | null {
+  const firstColor = fills.find(f => f.type === 'SOLID' && f.visible) as SolidPaint
+  if (firstColor === null) return null
+  const {r,g,b} = firstColor.color
+  return `rgba(${255.0 * r}, ${255.0 * g}, ${255.0 * b}, ${firstColor.opacity})`
+}
+
+function defaultForMixed<T>(t: T | PluginAPI['mixed'], defaultVal: T): T {
+  return t === figma.mixed ? defaultVal  : t
+}
+
 function convertText(node: TextNode): string {
-  return `<div>
-    ${node.characters}
-  </div>`
+  // TODO(jlfwong): Handle text with character overrides
+
+  const style = {
+    ...getOpacityStyle(node),
+    ...getLayoutStyle(node)
+  }
+  const color = colorFromPaints(defaultForMixed(node.fills, []))
+  if (color != null) {
+    style['color'] = color
+  }
+
+  const fontName = defaultForMixed(node.fontName, null)
+  if (fontName != null) {
+    style['font-family'] = fontName.family
+  }
+
+  const fontSize = defaultForMixed(node.fontSize, null)
+  if (fontSize != null) {
+    style['font-size'] = `${fontSize}px`
+  }
+
+  return h("div", node.name, style, node.characters)
 }
 
 type CSS = {[key: string]: string}
 
-function getLayoutStyle(node: BaseNode): CSS {
-  return {}
+function getLayoutStyle(node: BaseNode & LayoutMixin): CSS {
+  const {x, y, width, height} = node
+  return {
+    position: "absolute",
+    left: `${x.toFixed(0)}px`,
+    top: `${y.toFixed(0)}px`,
+    width: `${width.toFixed(0)}px`,
+    height: `${height.toFixed(0)}px`
+  }
+}
+
+function getOpacityStyle(node: BlendMixin): CSS {
+  return {
+    opacity: `${node.opacity}`
+  }
 }
