@@ -1,5 +1,5 @@
 function main() {
-  figma.closePlugin();
+  figma.showUI(__html__);
 }
 
 function sendToNetlify() {
