@@ -1,5 +1,3 @@
-import { base64encode } from "./base64"
-
 export interface ImageToUpload {
   path: string
   bytes: Uint8Array
