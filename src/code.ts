@@ -27,14 +27,27 @@ interface PackagedWebsite {
 
 async function sendToNetlify(website: PackagedWebsite) {
   const token: string | undefined = await figma.clientStorage.getAsync("netlify_token");
-  if (token == null) {
-    figma.ui.on("message", (message) => {
-      if (message.type === "token-response") {
-        figma.clientStorage.setAsync("netlify_token", message.token);
+  const siteId: string = figma.root.getPluginData("netlify_site_id");
+
+  figma.ui.on("message", (message) => {
+    if (message.type === "token-response") {
+      figma.clientStorage.setAsync("netlify_token", message.token);
+      if (siteId === "") {
+        figma.ui.postMessage({ type: "site-request", token: message.token });
       }
-    });
-  } else {
+    } else if (message.type === "netlify-site") {
+      figma.root.setPluginData("netlify_site_id", message.site_id);
+      figma.root.setPluginData("netlify_url", message.url);
+    }
+  });
+
+  if (siteId !== "") {
+    figma.ui.postMessage({ type: "site-id", siteId, url: figma.root.getPluginData("netlify_url") });
+  }
+  if (token) {
     figma.ui.postMessage({ type: "token", token });
+  } else if (siteId === "") {
+    figma.ui.postMessage({ type: "site-request", token });
   }
 }
 

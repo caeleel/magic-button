@@ -8,6 +8,8 @@ const randomKey = Math.random(); // replace with stronger key later
 function App() {
   const [content, setContent] = useState("")
   const [token, setToken] = useState("")
+  const [siteId, setSiteId] = useState("")
+  const [url, setUrl] = useState("")
 
   useEffect(() => {
     function handleMessage(ev: MessageEvent) {
@@ -15,6 +17,14 @@ function App() {
       if (msg.type === "token") {
         setToken(msg.token)
         return
+      }
+      if (msg.type === "site-id") {
+        setSiteId(msg.siteId)
+        setUrl(msg.url)
+        return
+      }
+      if (msg.type === "site-request") {
+        createSiteIfNotExists(msg.token)
       }
 
       console.log("DATA", ev.data)
@@ -25,6 +35,22 @@ function App() {
       window.removeEventListener("message", handleMessage)
     }
   })
+
+  const createSiteIfNotExists = async (tok: string) => {
+    if (siteId) return
+    if (tok === "") return
+
+    const resp = await fetch(`https://api.netlify.com/api/v1/sites`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tok}`},
+    })
+
+    if (resp.status === 200) {
+      const result = await resp.json()
+      setSiteId(result.site_id)
+      parent.postMessage({ pluginMessage: { type: "netlify_site_id", site_id: result.site_id, url: result.url } }, '*');
+    }
+  }
 
   const pollForToken = async () => {
     try {
