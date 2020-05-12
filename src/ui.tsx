@@ -44,8 +44,12 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
     blobs: {}
   }
 
+  let fontLoadingHTML = (Object.keys(data.fonts).map(fontName => {
+    return `<link href="https://fonts.googleapis.com/css2?family=${fontName}" rel="stylesheet">`
+  })).join("")
+
   for (let path in data.pageData) {
-    const content = `<html><body>${data.pageData[path]}</body></html>`
+    const content = `<html><head><title>${path}</title></head>${fontLoadingHTML}<body>${data.pageData[path]}</body></html>`
     const hash = sha1(content)
     site.files[path] = hash
     site.blobs[hash] = content

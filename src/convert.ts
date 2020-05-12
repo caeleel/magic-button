@@ -3,9 +3,14 @@ export interface ImageToUpload {
   bytes: Uint8Array
 }
 
+export interface FontInUse {
+  name: string
+}
+
 export interface ConversionResult {
   pageData: PageData
   images: {[hash: string]: ImageToUpload}
+  fonts: {[name: string]: boolean}
 }
 
 export type PageData = {[path: string]: string}
@@ -26,10 +31,13 @@ function h(tagName: string, name: string, style: CSS, content: string) {
 }
 
 let images: ConversionResult["images"]
+let fonts: ConversionResult["fonts"]
+
 export async function convert(node: DocumentNode): Promise<ConversionResult> {
   images = {}
+  fonts = {}
   const pageData = await convertDocument(node)
-  return {pageData, images}
+  return {pageData, images, fonts}
 }
 
 async function convertNode(node: BaseNode): Promise<string> {
@@ -159,6 +167,47 @@ function defaultForMixed<T>(t: T | PluginAPI['mixed'], defaultVal: T): T {
   return t === figma.mixed ? defaultVal  : t
 }
 
+function numericWeightFromStyle(style: string): number {
+  // TODO(jlfwong): This is a crummy heuristic that'll be wrong in a variety of
+  // circumstances. It would be better if the plugin APIs exposed the numeric
+  // font weight.
+  //
+  // For example, Inter Regular seems to match up with weight 300 from Google
+  // Fonts? This is maybe a versioning issue.
+  switch (style.replace(/\s*italic\s*/i, "")) {
+    case "Thin":
+      return 100
+
+    case "Extra Light":
+    case "Extra-light":
+      return 200
+
+    case "Light":
+      return 300
+
+    case "Regular":
+      return 400
+
+    case "Medium":
+      return 500
+
+    case "Semi Bold":
+    case "Semi-bold":
+      return 600
+
+    case "Bold":
+      return 700
+
+    case "Extra Bold":
+    case "Extra-bold":
+      return 800
+
+    case "Black":
+      return 900
+  }
+  return 400
+}
+
 function convertText(node: TextNode): string {
   // TODO(jlfwong): Handle text with character overrides
 
@@ -171,10 +220,21 @@ function convertText(node: TextNode): string {
     style['color'] = color
   }
 
-  // TODO(jlfwong): Make this work for Google fonts
   const fontName = defaultForMixed(node.fontName, null)
+  node.absoluteTransform
   if (fontName != null) {
+    let fontWeightNumeric = numericWeightFromStyle(fontName.style)
+    let italic = (/italic/i).exec(fontName.style) != null
+
+    const googleFontName = `${fontName.family}:${italic ? 'ital,' : ''}wght@${fontWeightNumeric}`
+    fonts[googleFontName] = true
     style['font-family'] = `"${fontName.family}"`
+    if (fontWeightNumeric !== 400) {
+      style['font-weight'] = `${fontWeightNumeric}`
+    }
+    if (italic) {
+      style['font-style'] = 'italic'
+    }
   }
 
   const fontSize = defaultForMixed(node.fontSize, null)
