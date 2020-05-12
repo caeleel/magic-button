@@ -41,15 +41,7 @@ async function sendToNetlify(website: PackagedWebsite) {
     }
   });
 
-  if (siteId !== "") {
-    figma.ui.postMessage({ type: "site-id", siteId, url: figma.root.getPluginData("netlify_url") });
-  }
-  if (token) {
-    figma.ui.postMessage({ type: "token", token });
-    if (siteId === "") {
-      figma.ui.postMessage({ type: "site-request", token });
-    }
-  }
+  figma.ui.postMessage({ type: "init", token: token || "", siteId, url: figma.root.getPluginData("netlify_url") });
 }
 
 main();

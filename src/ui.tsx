@@ -1,9 +1,25 @@
 import * as React from 'react'
 import * as ReactDOM from 'react-dom'
 import './ui.css'
+import sha1 from 'sha1'
 import { useRef, useState, useEffect } from 'react'
 
 const randomKey = Math.random(); // replace with stronger key later
+
+function netlifyRequest(method: string, url: string, token: string, body: any, contentType: string) {
+  if (contentType === "application/json") {
+    body = JSON.stringify(body)
+  }
+
+  return fetch(url, {
+    body,
+    method,
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": contentType,
+    },
+  })
+}
 
 function App() {
   const [content, setContent] = useState("")
@@ -14,17 +30,16 @@ function App() {
   useEffect(() => {
     function handleMessage(ev: MessageEvent) {
       const msg = ev.data.pluginMessage
-      if (msg.type === "token") {
+      if (msg.type === "init") {
         setToken(msg.token)
-        return
-      }
-      if (msg.type === "site-id") {
         setSiteId(msg.siteId)
         setUrl(msg.url)
-        return
-      }
-      if (msg.type === "site-request") {
-        createSiteIfNotExists(msg.token)
+
+        if (msg.token !== "" && msg.siteId === "") {
+          createSiteIfNotExists(msg.token)
+        } else if (msg.token !== "" && msg.siteId !== "") {
+
+        }
         return
       }
 
@@ -37,14 +52,31 @@ function App() {
     }
   })
 
+  const deploySite = async () => {
+    const body = `<html><body>${content}</body></html>`
+    const sha = sha1(body)
+    let resp = await netlifyRequest('POST', `https://api.netlify.com/api/v1/sites/${siteId}/deploys`, token, {
+      files: { "/index.html": sha }
+    }, "application/json")
+
+    if (resp.status !== 200) {
+      console.error(`Could not create deploy: ${resp.status}`)
+      return
+    }
+
+    const result = await resp.json()
+    resp = await netlifyRequest('PUT', `https://api.netlify.com/api/v1/deploys/${result.id}/files/index.html`, token, body, "application/octet-stream")
+
+    if (resp.status !== 200) {
+      console.error(`Could not upload index.html: ${resp.status}`)
+    }
+  }
+
   const createSiteIfNotExists = async (tok: string) => {
-    if (siteId) return
+    if (siteId !== "") return
     if (tok === "") return
 
-    const resp = await fetch(`https://api.netlify.com/api/v1/sites`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${tok}`},
-    })
+    const resp = await netlifyRequest('POST', `https://api.netlify.com/api/v1/sites`, tok, "", "text/html")
 
     if (resp.status === 201) {
       const result = await resp.json()
@@ -62,6 +94,7 @@ function App() {
       }
       const result = await resp.json()
       setToken(result.token)
+      if (siteId === "") createSiteIfNotExists(result.token)
       parent.postMessage({ pluginMessage: { type: "token-response", token: result.token } }, '*')
     } catch (e) {
       setTimeout(pollForToken, 2000)
@@ -76,6 +109,7 @@ function App() {
   return <div>
     <div dangerouslySetInnerHTML={{ __html: content }} />
     {token === "" && <button onClick={tryConnect}>Connect</button>}
+    {token !== "" && siteId !== "" && content !== "" && <button onClick={() => deploySite()}>Magic</button>}
   </div>
 }
 
