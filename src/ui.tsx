@@ -25,6 +25,7 @@ function App() {
   const [content, setContent] = useState("")
   const [token, setToken] = useState("")
   const [siteId, setSiteId] = useState("")
+  const [deployed, setDeployed] = useState(false)
   const [url, setUrl] = useState("")
 
   useEffect(() => {
@@ -69,7 +70,10 @@ function App() {
 
     if (resp.status !== 200) {
       console.error(`Could not upload index.html: ${resp.status}`)
+      return
     }
+
+    setDeployed(true)
   }
 
   const createSiteIfNotExists = async (tok: string) => {
@@ -107,9 +111,12 @@ function App() {
   }
 
   return <div>
+    <div style={{position: 'absolute', zIndex: 1000}}>
+      {token === "" && <button onClick={tryConnect}>Connect</button>}
+      {token !== "" && siteId !== "" && !deployed && <button onClick={() => deploySite()}>Magic</button>}
+      {deployed && <a href={url} onClick={() => window.open(url)}>Visit site</a>}
+    </div>
     <div dangerouslySetInnerHTML={{ __html: content }} />
-    {token === "" && <button onClick={tryConnect}>Connect</button>}
-    {token !== "" && siteId !== "" && content !== "" && <button onClick={() => deploySite()}>Magic</button>}
   </div>
 }
 
