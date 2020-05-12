@@ -1,3 +1,5 @@
+import { base64encode } from "./base64"
+
 function toStyleString(style: CSS): string {
   return Object.keys(style).map(key => {
     return `${key}: ${style[key]}`
@@ -65,9 +67,9 @@ async function convertPage(node: PageNode): Promise<string> {
 async function convertFrame(node: FrameNode | GroupNode | ComponentNode | InstanceNode): Promise<string> {
   const shouldWrapChildrenWithLayout = node.type !== "GROUP"
 
-  const style = {
+  const style: CSS = {
     ...getOpacityStyle(node),
-    ...getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
+    ...await getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
     ...(shouldWrapChildrenWithLayout ? getLayoutStyle(node) : {})
   }
 
@@ -84,10 +86,10 @@ function arrayBufferToString(buffer: ArrayBuffer): string {
 }
 
 async function convertRectangle(node: RectangleNode): Promise<string> {
-  const style = {
+  const style: CSS = {
     ...getOpacityStyle(node),
     ...getLayoutStyle(node),
-    ...getBackgroundStyleForPaints(defaultForMixed(node.fills, [])),
+    ...await getBackgroundStyleForPaints(defaultForMixed(node.fills, [])),
   }
   return h("div", node.name, style, "")
 }
@@ -104,11 +106,15 @@ async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string>
   }
 }
 
+function colorToCSS(rgb: RGB, opacity: number) {
+  const {r,g,b} = rgb
+  return `rgba(${255.0 * r}, ${255.0 * g}, ${255.0 * b}, ${opacity})`
+}
+
 function colorFromPaints(fills: ReadonlyArray<Paint>): string | null {
   const firstColor = fills.find(f => f.type === 'SOLID' && f.visible) as SolidPaint
   if (firstColor == null) return null
-  const {r,g,b} = firstColor.color
-  return `rgba(${255.0 * r}, ${255.0 * g}, ${255.0 * b}, ${firstColor.opacity})`
+  return colorToCSS(firstColor.color, firstColor.opacity || 1.0)
 }
 
 function defaultForMixed<T>(t: T | PluginAPI['mixed'], defaultVal: T): T {
@@ -163,15 +169,41 @@ function getOpacityStyle(node: BlendMixin): CSS {
   }
 }
 
-function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): CSS {
-  // TODO(jlfwong): Handle images & gradients
-
+async function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): Promise<CSS> {
   const ret: CSS = {}
 
-  const color = colorFromPaints(paints)
+  const backgroundParts: string[] = []
 
-  if (color !== null) {
-    ret['background'] = color
+  for (let paint of paints) {
+    switch (paint.type) {
+      case "SOLID": {
+        backgroundParts.push(colorToCSS(paint.color, paint.opacity || 1.0))
+        break
+      }
+
+      case "IMAGE": {
+        // TODO(jlfwong): Handle image transforms
+
+        const hash = paint.imageHash
+        if (hash != null) {
+          const img = figma.getImageByHash(hash)
+          const bytes = await img.getBytesAsync()
+          const encoded = base64encode(bytes)
+          backgroundParts.push(`url(data:image/png;base64,${encoded})`)
+        }
+      }
+
+      case "GRADIENT_LINEAR":
+      case "GRADIENT_RADIAL":
+      case "GRADIENT_DIAMOND":
+      case "GRADIENT_ANGULAR": {
+        // TODO(jlfwong): Handle gradients
+      }
+    }
+  }
+
+  if (backgroundParts.length > 0) {
+    ret['background'] = backgroundParts.join(",")
   }
 
   return ret
