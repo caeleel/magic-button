@@ -90,16 +90,24 @@ function App() {
     if (pageData === null) return
 
     let site = siteId
-    if (site === "new") {
+    if (site === "new" || site === "") {
       site = await createNewSite(token)
       if (site === "") return
     }
 
     const compiled = compileForNetlify(pageData)
 
-    let resp = await netlifyRequest('POST', `https://api.netlify.com/api/v1/sites/${siteId}/deploys`, token, {
+    let resp = await netlifyRequest('POST', `https://api.netlify.com/api/v1/sites/${site}/deploys`, token, {
       files: compiled.files
     }, "application/json")
+
+    if (resp.status === 404) {
+      site = await createNewSite(token)
+      if (site === "") return
+      resp = await netlifyRequest('POST', `https://api.netlify.com/api/v1/sites/${site}/deploys`, token, {
+        files: compiled.files
+      }, "application/json")
+    }
 
     if (resp.status !== 200) {
       console.error(`Could not create deploy: ${resp.status}`)
@@ -155,7 +163,8 @@ function App() {
     if (resp.status === 201) {
       const result = await resp.json()
       setSiteId(result.site_id)
-      parent.postMessage({ pluginMessage: { type: "netlify-site", site_id: result.site_id } }, '*');
+      setSites([...sites, {id: result.site_id, url: result.url}])
+      parent.postMessage({ pluginMessage: { type: "netlify-site", site_id: result.site_id } }, '*')
       return result.site_id
     }
 
