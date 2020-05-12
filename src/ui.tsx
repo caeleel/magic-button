@@ -25,6 +25,7 @@ function App() {
       }
       if (msg.type === "site-request") {
         createSiteIfNotExists(msg.token)
+        return
       }
 
       console.log("DATA", ev.data)
@@ -45,10 +46,11 @@ function App() {
       headers: { Authorization: `Bearer ${tok}`},
     })
 
-    if (resp.status === 200) {
+    if (resp.status === 201) {
       const result = await resp.json()
       setSiteId(result.site_id)
-      parent.postMessage({ pluginMessage: { type: "netlify_site_id", site_id: result.site_id, url: result.url } }, '*');
+      console.log(result);
+      parent.postMessage({ pluginMessage: { type: "netlify-site", site_id: result.site_id, url: result.url } }, '*');
     }
   }
 

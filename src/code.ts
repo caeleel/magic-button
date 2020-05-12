@@ -46,8 +46,9 @@ async function sendToNetlify(website: PackagedWebsite) {
   }
   if (token) {
     figma.ui.postMessage({ type: "token", token });
-  } else if (siteId === "") {
-    figma.ui.postMessage({ type: "site-request", token });
+    if (siteId === "") {
+      figma.ui.postMessage({ type: "site-request", token });
+    }
   }
 }
 
