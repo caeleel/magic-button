@@ -1,5 +1,15 @@
 import { base64encode } from "./base64"
 
+export interface ImageToUpload {
+  path: string
+  bytes: Uint8Array
+}
+
+export interface ConversionResult {
+  pageData: PageData
+  images: {[hash: string]: ImageToUpload}
+}
+
 export type PageData = {[path: string]: string}
 
 function mergePageData(a: PageData, b: PageData) {
@@ -17,8 +27,11 @@ function h(tagName: string, name: string, style: CSS, content: string) {
   return `<${tagName} name="${name}" style='${toStyleString(style)}'>${content}</${tagName}>`
 }
 
-export async function convert(node: DocumentNode): Promise<PageData> {
-  return await convertDocument(node)
+let images: ConversionResult["images"]
+export async function convert(node: DocumentNode): Promise<ConversionResult> {
+  images = {}
+  const pageData = await convertDocument(node)
+  return {pageData, images}
 }
 
 async function convertNode(node: BaseNode): Promise<string> {
@@ -211,14 +224,15 @@ async function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): Promis
       }
 
       case "IMAGE": {
-        // TODO(jlfwong): Handle image transforms
-
         const hash = paint.imageHash
         if (hash != null) {
           const img = figma.getImageByHash(hash)
           const bytes = await img.getBytesAsync()
-          const encoded = base64encode(bytes)
-          backgroundParts.push(`url(data:image/png;base64,${encoded}) no-repeat top left/contain`)
+
+          // TODO(jlfwong): Support images other than .pngs
+          const path = `/images/${hash}.png`
+          backgroundParts.push(`url(${path}) no-repeat top left/contain`)
+          images[hash] = {bytes, path}
         }
       }
 

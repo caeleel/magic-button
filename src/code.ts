@@ -7,7 +7,6 @@ async function run() {
       type: "conversion-result",
       content: result
     })
-    console.log("done")
   } catch(e) {
     console.error("Conversion failed", e)
   }

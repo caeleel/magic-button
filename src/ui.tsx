@@ -3,7 +3,7 @@ import * as ReactDOM from 'react-dom'
 import './ui.css'
 import sha1 from 'sha1'
 import { useRef, useState, useEffect } from 'react'
-import { PageData } from './convert'
+import { PageData, ConversionResult } from './convert'
 
 const randomKey = Math.random(); // replace with stronger key later
 
@@ -35,27 +35,33 @@ interface PackagedWebsite {
   files: {[path: string]: string}
 
   // Map from hash to content
-  blobs: {[hash: string]: string}
+  blobs: {[hash: string]: string | Uint8Array}
 }
 
-function compileForNetlify(data: PageData): PackagedWebsite {
+function compileForNetlify(data: ConversionResult): PackagedWebsite {
   const site: PackagedWebsite = {
     files: {},
     blobs: {}
   }
 
-  for (let path in data) {
-    const content = `<html><body>${data[path]}</body></html>`
+  for (let path in data.pageData) {
+    const content = `<html><body>${data.pageData[path]}</body></html>`
     const hash = sha1(content)
     site.files[path] = hash
     site.blobs[hash] = content
+  }
+
+  for (let imageHash in data.images) {
+    const img = data.images[imageHash]
+    site.files[img.path] = imageHash
+    site.blobs[imageHash] = img.bytes
   }
 
   return site
 }
 
 function App() {
-  const [pageData, setPageData] = useState<PageData | null>(null)
+  const [conversionResult, setConversionResult] = useState<ConversionResult | null>(null)
   const [previewContent, setPreviewContent] = useState("")
   const [token, setToken] = useState("")
   const [siteId, setSiteId] = useState("")
@@ -74,9 +80,13 @@ function App() {
         }
         return
       } else if (msg.type == "conversion-result") {
-        setPageData(msg.content)
-        for (let path in msg.content) {
-          setPreviewContent(msg.content[path])
+        console.log("conversion-result", msg.content)
+        const result: ConversionResult = msg.content
+        setConversionResult(result)
+        for (let path in result.pageData) {
+          // TODO(jlfwong): Get images working
+          // in the preview
+          setPreviewContent(result.pageData[path])
         }
       }
     }
@@ -87,7 +97,7 @@ function App() {
   })
 
   const deploySite = async () => {
-    if (pageData === null) return
+    if (conversionResult === null) return
 
     let site = siteId
     if (site === "new" || site === "") {
@@ -95,7 +105,7 @@ function App() {
       if (site === "") return
     }
 
-    const compiled = compileForNetlify(pageData)
+    const compiled = compileForNetlify(conversionResult)
 
     let resp = await netlifyRequest('POST', `https://api.netlify.com/api/v1/sites/${site}/deploys`, token, {
       files: compiled.files
