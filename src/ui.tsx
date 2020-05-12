@@ -3,6 +3,7 @@ import * as ReactDOM from 'react-dom'
 import './ui.css'
 import sha1 from 'sha1'
 import { useRef, useState, useEffect } from 'react'
+import { PageData } from './convert'
 
 const randomKey = Math.random(); // replace with stronger key later
 
@@ -29,8 +30,33 @@ interface Site {
   id: string
 }
 
+interface PackagedWebsite {
+  // Map from path to hash
+  files: {[path: string]: string}
+
+  // Map from hash to content
+  blobs: {[hash: string]: string}
+}
+
+function compileForNetlify(data: PageData): PackagedWebsite {
+  const site: PackagedWebsite = {
+    files: {},
+    blobs: {}
+  }
+
+  for (let path in data) {
+    const content = `<html><body>${data[path]}</body></html>`
+    const hash = sha1(content)
+    site.files[path] = hash
+    site.blobs[hash] = content
+  }
+
+  return site
+}
+
 function App() {
-  const [content, setContent] = useState("")
+  const [pageData, setPageData] = useState<PageData | null>(null)
+  const [previewContent, setPreviewContent] = useState("")
   const [token, setToken] = useState("")
   const [siteId, setSiteId] = useState("")
   const [deployed, setDeployed] = useState(false)
@@ -47,10 +73,12 @@ function App() {
           getAvailableSites(msg.token)
         }
         return
+      } else if (msg.type == "conversion-result") {
+        setPageData(msg.content)
+        for (let path in msg.content) {
+          setPreviewContent(msg.content[path])
+        }
       }
-
-      console.log("DATA", ev.data)
-      setContent(msg)
     }
     window.addEventListener("message", handleMessage)
     return () => {
@@ -59,16 +87,18 @@ function App() {
   })
 
   const deploySite = async () => {
+    if (pageData === null) return
+
     let site = siteId
     if (site === "new") {
       site = await createNewSite(token)
       if (site === "") return
     }
 
-    const body = `<html><body>${content}</body></html>`
-    const sha = sha1(body)
-    let resp = await netlifyRequest('POST', `https://api.netlify.com/api/v1/sites/${site}/deploys`, token, {
-      files: { "/index.html": sha }
+    const compiled = compileForNetlify(pageData)
+
+    let resp = await netlifyRequest('POST', `https://api.netlify.com/api/v1/sites/${siteId}/deploys`, token, {
+      files: compiled.files
     }, "application/json")
 
     if (resp.status !== 200) {
@@ -77,7 +107,24 @@ function App() {
     }
 
     const result = await resp.json()
-    resp = await netlifyRequest('PUT', `https://api.netlify.com/api/v1/deploys/${result.id}/files/index.html`, token, body, "application/octet-stream")
+    const deployId = result.id
+
+    const uploads = Object.keys(compiled.files).map(async (path) => {
+      const hash = compiled.files[path]
+      const blob = compiled.blobs[hash]
+
+      const url = `https://api.netlify.com/api/v1/deploys/${deployId}/files/${path}`
+      try {
+        console.log(`Uploading ${path}...`)
+        await netlifyRequest('PUT', url, token, blob, "application/octet-stream")
+        console.log(`Successfully uploaded ${path}...`)
+      } catch(e) {
+        console.log(`Failed to upload ${path}...`)
+        throw e
+      }
+    })
+
+    await Promise.all(uploads)
 
     if (resp.status !== 200) {
       console.error(`Could not upload index.html: ${resp.status}`)
@@ -167,7 +214,7 @@ function App() {
       </>}
       {deployed && <a href={url} onClick={() => window.open(url)}>Visit site</a>}
     </div>
-    <div dangerouslySetInnerHTML={{ __html: content }} />
+    <div dangerouslySetInnerHTML={{ __html: previewContent }} />
   </div>
 }
 

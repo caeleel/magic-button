@@ -1,6 +1,10 @@
 import { base64encode } from "./base64"
 
-interface
+export type PageData = {[path: string]: string}
+
+function mergePageData(a: PageData, b: PageData) {
+  return {...a, ...b}
+}
 
 function toStyleString(style: CSS): string {
   return Object.keys(style).map(key => {
@@ -13,8 +17,8 @@ function h(tagName: string, name: string, style: CSS, content: string) {
   return `<${tagName} name="${name}" style='${toStyleString(style)}'>${content}</${tagName}>`
 }
 
-export async function convert(node: DocumentNode): Promise<string> {
-  return await convertNode(node)
+export async function convert(node: DocumentNode): Promise<PageData> {
+  return await convertDocument(node)
 }
 
 async function convertNode(node: BaseNode): Promise<string> {
@@ -24,10 +28,8 @@ async function convertNode(node: BaseNode): Promise<string> {
 
   switch (node.type) {
     case "DOCUMENT":
-      return await convertDocument(node)
-
     case "PAGE":
-      return await convertPage(node)
+      throw new Error(`Unexpected type ${node.type} in convertNode`)
 
     case "SLICE":
       return ""
@@ -58,12 +60,40 @@ async function convertChildren(children: ReadonlyArray<BaseNode>): Promise<strin
   return (await Promise.all(children.map(convertNode))).join("\n")
 }
 
-async function convertDocument(node: DocumentNode): Promise<string> {
-  return h("div", node.name, {}, await convertChildren(node.children))
+async function convertDocument(node: DocumentNode): Promise<PageData> {
+  const perPageData = await Promise.all(node.children.map(convertPage))
+  let data: PageData = {}
+  for (let page of perPageData) {
+    data = mergePageData(data, page)
+  }
+  return data
 }
 
-async function convertPage(node: PageNode): Promise<string> {
-  return h("div", node.name, {}, await convertChildren(node.children))
+async function convertPage(node: PageNode): Promise<PageData> {
+  let data: PageData = {}
+  for (let child of node.children) {
+    if (child.type === "INSTANCE" || child.type === "COMPONENT" || child.type === "FRAME") {
+      data[child.name] = await convertTopLevelFrame(child)
+    }
+  }
+  return data
+}
+
+async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
+  const style: CSS = {
+    ...getOpacityStyle(node),
+    ...await getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
+  }
+
+  // TODO(jlfwong): This isn't actually what we want -- we just want this to
+  // contain all the children.
+  style["position"] = "relative"
+  style["top"] = "0"
+  style["left"] = "0"
+  style["width"] = "100vw"
+  style["height"] = "100vh"
+
+  return h("div", node.name, style, await convertChildren(node.children))
 }
 
 async function convertFrame(node: FrameNode | GroupNode | ComponentNode | InstanceNode): Promise<string> {
@@ -73,11 +103,6 @@ async function convertFrame(node: FrameNode | GroupNode | ComponentNode | Instan
     ...getOpacityStyle(node),
     ...await getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
     ...(shouldWrapChildrenWithLayout ? getLayoutStyle(node) : {})
-  }
-
-  if (node.parent?.type === "PAGE") {
-    style["top"] = "0"
-    style["left"] = "0"
   }
 
   return h("div", node.name, style, await convertChildren(node.children))

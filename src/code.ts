@@ -3,7 +3,10 @@ import { convert } from "./convert";
 async function run() {
   try {
     const result = await convert(figma.root)
-    figma.ui.postMessage(result)
+    figma.ui.postMessage({
+      type: "conversion-result",
+      content: result
+    })
     console.log("done")
   } catch(e) {
     console.error("Conversion failed", e)
