@@ -32,9 +32,6 @@ async function sendToNetlify(website: PackagedWebsite) {
   figma.ui.on("message", (message) => {
     if (message.type === "token-response") {
       figma.clientStorage.setAsync("netlify_token", message.token);
-      if (siteId === "") {
-        figma.ui.postMessage({ type: "site-request", token: message.token });
-      }
     } else if (message.type === "netlify-site") {
       figma.root.setPluginData("netlify_site_id", message.site_id);
       figma.root.setPluginData("netlify_url", message.url);

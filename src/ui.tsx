@@ -11,14 +11,22 @@ function netlifyRequest(method: string, url: string, token: string, body: any, c
     body = JSON.stringify(body)
   }
 
-  return fetch(url, {
-    body,
+  const opts: any = {
     method,
     headers: {
       "Authorization": `Bearer ${token}`,
       "Content-Type": contentType,
     },
-  })
+  }
+
+  if (method !== "GET") opts.body = body
+
+  return fetch(url, opts)
+}
+
+interface Site {
+  url: string
+  id: string
 }
 
 function App() {
@@ -27,6 +35,7 @@ function App() {
   const [siteId, setSiteId] = useState("")
   const [deployed, setDeployed] = useState(false)
   const [url, setUrl] = useState("")
+  const [sites, setSites] = useState<Site[]>([])
 
   useEffect(() => {
     function handleMessage(ev: MessageEvent) {
@@ -36,10 +45,8 @@ function App() {
         setSiteId(msg.siteId)
         setUrl(msg.url)
 
-        if (msg.token !== "" && msg.siteId === "") {
-          createSiteIfNotExists(msg.token)
-        } else if (msg.token !== "" && msg.siteId !== "") {
-
+        if (msg.token !== "") {
+          getAvailableSites(msg.token)
         }
         return
       }
@@ -54,9 +61,15 @@ function App() {
   })
 
   const deploySite = async () => {
+    let site = siteId
+    if (site === "new") {
+      site = await createNewSite(token)
+      if (site === "") return
+    }
+
     const body = `<html><body>${content}</body></html>`
     const sha = sha1(body)
-    let resp = await netlifyRequest('POST', `https://api.netlify.com/api/v1/sites/${siteId}/deploys`, token, {
+    let resp = await netlifyRequest('POST', `https://api.netlify.com/api/v1/sites/${site}/deploys`, token, {
       files: { "/index.html": sha }
     }, "application/json")
 
@@ -76,17 +89,33 @@ function App() {
     setDeployed(true)
   }
 
-  const createSiteIfNotExists = async (tok: string) => {
-    if (siteId !== "") return
-    if (tok === "") return
+  const getAvailableSites = async (tok: string) => {
+    const resp = await netlifyRequest('GET', 'https://api.netlify.com/api/v1/sites', tok, "", "text/html")
+    if (resp.status === 401) {
+      setToken("")
+      parent.postMessage({ pluginMessage: { type: "token-response", token: "" } }, '*')
+    }
+    if (resp.status !== 200) {
+      return
+    }
+    const result = await resp.json()
+    setSites(result.map((x: any) => ({ id: x.site_id, url: x.url })))
+  }
+
+  const createNewSite = async (tok: string): Promise<string> => {
+    if (tok === "") return ""
 
     const resp = await netlifyRequest('POST', `https://api.netlify.com/api/v1/sites`, tok, "", "text/html")
 
     if (resp.status === 201) {
       const result = await resp.json()
       setSiteId(result.site_id)
+      setUrl(result.url)
       parent.postMessage({ pluginMessage: { type: "netlify-site", site_id: result.site_id, url: result.url } }, '*');
+      return result.site_id
     }
+
+    return ""
   }
 
   const pollForToken = async () => {
@@ -98,8 +127,9 @@ function App() {
       }
       const result = await resp.json()
       setToken(result.token)
-      if (siteId === "") createSiteIfNotExists(result.token)
+      if (siteId === "") createNewSite(result.token)
       parent.postMessage({ pluginMessage: { type: "token-response", token: result.token } }, '*')
+      getAvailableSites(result.token)
     } catch (e) {
       setTimeout(pollForToken, 2000)
     }
@@ -110,10 +140,31 @@ function App() {
     setTimeout(pollForToken, 2000)
   }
 
+  const changeSite = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const site = e.currentTarget.value
+    const url = (document.getElementById("site") as HTMLSelectElement).options[e.currentTarget.selectedIndex].text
+    setSiteId(site)
+    setUrl(url)
+    if (site !== "new") {
+      parent.postMessage({ pluginMessage: { type: "netlify-site", site_id: site, url: url } }, '*');
+    }
+  }
+
+  const sitesToChoose = [...sites, { id: "new", url: "Create new site" }]
+  let selected = "new"
+  for (const site of sites) {
+    if (site.id === siteId) selected = siteId
+  }
+
   return <div>
     <div style={{position: 'absolute', zIndex: 1000}}>
       {token === "" && <button onClick={tryConnect}>Connect</button>}
-      {token !== "" && siteId !== "" && !deployed && <button onClick={() => deploySite()}>Magic</button>}
+      {token !== "" && !deployed && <button onClick={() => deploySite()}>Magic</button>}
+      {token !== "" && !deployed && <>
+        <select id="site" value={selected} onChange={changeSite}>
+          {sitesToChoose.map((site) => <option key={site.id} value={site.id}>{site.url}</option>)}
+        </select>
+      </>}
       {deployed && <a href={url} onClick={() => window.open(url)}>Visit site</a>}
     </div>
     <div dangerouslySetInnerHTML={{ __html: content }} />
