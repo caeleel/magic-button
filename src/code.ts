@@ -14,18 +14,10 @@ function main() {
   figma.showUI(__html__, {width: 360, height: 640});
   run()
 
-  sendToNetlify({ paths: new Map(), blobs: new Map() });
+  sendToNetlify();
 }
 
-interface PackagedWebsite {
-  // Map from hash to blob key
-  paths: Map<string, string>
-
-  // Map from blob key to binary
-  blobs: Map<string, Uint8Array>
-}
-
-async function sendToNetlify(website: PackagedWebsite) {
+async function sendToNetlify() {
   const token: string | undefined = await figma.clientStorage.getAsync("netlify_token");
   const siteId: string = figma.root.getPluginData("netlify_site_id");
 

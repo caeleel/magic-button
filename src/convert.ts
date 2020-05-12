@@ -1,5 +1,7 @@
 import { base64encode } from "./base64"
 
+interface
+
 function toStyleString(style: CSS): string {
   return Object.keys(style).map(key => {
     return `${key}: ${style[key]}`
