@@ -34,7 +34,6 @@ function App() {
   const [token, setToken] = useState("")
   const [siteId, setSiteId] = useState("")
   const [deployed, setDeployed] = useState(false)
-  const [url, setUrl] = useState("")
   const [sites, setSites] = useState<Site[]>([])
 
   useEffect(() => {
@@ -43,7 +42,6 @@ function App() {
       if (msg.type === "init") {
         setToken(msg.token)
         setSiteId(msg.siteId)
-        setUrl(msg.url)
 
         if (msg.token !== "") {
           getAvailableSites(msg.token)
@@ -110,8 +108,7 @@ function App() {
     if (resp.status === 201) {
       const result = await resp.json()
       setSiteId(result.site_id)
-      setUrl(result.url)
-      parent.postMessage({ pluginMessage: { type: "netlify-site", site_id: result.site_id, url: result.url } }, '*');
+      parent.postMessage({ pluginMessage: { type: "netlify-site", site_id: result.site_id } }, '*');
       return result.site_id
     }
 
@@ -142,18 +139,21 @@ function App() {
 
   const changeSite = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const site = e.currentTarget.value
-    const url = (document.getElementById("site") as HTMLSelectElement).options[e.currentTarget.selectedIndex].text
     setSiteId(site)
-    setUrl(url)
     if (site !== "new") {
-      parent.postMessage({ pluginMessage: { type: "netlify-site", site_id: site, url: url } }, '*');
+      parent.postMessage({ pluginMessage: { type: "netlify-site", site_id: site } }, '*');
     }
   }
 
   const sitesToChoose = [...sites, { id: "new", url: "Create new site" }]
   let selected = "new"
+  let url = ""
   for (const site of sites) {
-    if (site.id === siteId) selected = siteId
+    if (site.id === siteId) {
+      selected = siteId
+      url = site.url
+      break
+    }
   }
 
   return <div>

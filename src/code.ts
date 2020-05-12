@@ -34,11 +34,10 @@ async function sendToNetlify(website: PackagedWebsite) {
       figma.clientStorage.setAsync("netlify_token", message.token);
     } else if (message.type === "netlify-site") {
       figma.root.setPluginData("netlify_site_id", message.site_id);
-      figma.root.setPluginData("netlify_url", message.url);
     }
   });
 
-  figma.ui.postMessage({ type: "init", token: token || "", siteId, url: figma.root.getPluginData("netlify_url") });
+  figma.ui.postMessage({ type: "init", token: token || "", siteId });
 }
 
 main();
