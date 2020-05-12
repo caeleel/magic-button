@@ -6,7 +6,7 @@ function toStyleString(style: CSS): string {
 
 function h(tagName: string, name: string, style: CSS, content: string) {
   // TODO(jlfwong): Remove the name=... for debugging
-  return `<${tagName} name="${name}" style="${toStyleString(style)}">${content}</${tagName}>`
+  return `<${tagName} name="${name}" style='${toStyleString(style)}'>${content}</${tagName}>`
 }
 
 export async function convert(node: DocumentNode): Promise<string> {
@@ -63,12 +63,19 @@ async function convertPage(node: PageNode): Promise<string> {
 }
 
 async function convertFrame(node: FrameNode | GroupNode | ComponentNode | InstanceNode): Promise<string> {
-  const shouldWrapChildrenWithLayout = node.parent?.type !== "PAGE" && node.type !== "GROUP"
+  const shouldWrapChildrenWithLayout = node.type !== "GROUP"
 
   const style = {
     ...getOpacityStyle(node),
+    ...getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
     ...(shouldWrapChildrenWithLayout ? getLayoutStyle(node) : {})
   }
+
+  if (node.parent?.type === "PAGE") {
+    style["top"] = "0"
+    style["left"] = "0"
+  }
+
   return h("div", node.name, style, await convertChildren(node.children))
 }
 
@@ -79,7 +86,8 @@ function arrayBufferToString(buffer: ArrayBuffer): string {
 async function convertRectangle(node: RectangleNode): Promise<string> {
   const style = {
     ...getOpacityStyle(node),
-    ...getLayoutStyle(node)
+    ...getLayoutStyle(node),
+    ...getBackgroundStyleForPaints(defaultForMixed(node.fills, [])),
   }
   return h("div", node.name, style, "")
 }
@@ -98,7 +106,7 @@ async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string>
 
 function colorFromPaints(fills: ReadonlyArray<Paint>): string | null {
   const firstColor = fills.find(f => f.type === 'SOLID' && f.visible) as SolidPaint
-  if (firstColor === null) return null
+  if (firstColor == null) return null
   const {r,g,b} = firstColor.color
   return `rgba(${255.0 * r}, ${255.0 * g}, ${255.0 * b}, ${firstColor.opacity})`
 }
@@ -119,15 +127,18 @@ function convertText(node: TextNode): string {
     style['color'] = color
   }
 
+  // TODO(jlfwong): Make this work for Google fonts
   const fontName = defaultForMixed(node.fontName, null)
   if (fontName != null) {
-    style['font-family'] = fontName.family
+    style['font-family'] = `"${fontName.family}"`
   }
 
   const fontSize = defaultForMixed(node.fontSize, null)
   if (fontSize != null) {
     style['font-size'] = `${fontSize}px`
   }
+
+  style['text-align'] = node.textAlignHorizontal.toLowerCase()
 
   return h("div", node.name, style, node.characters)
 }
@@ -146,7 +157,22 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): CSS {
 }
 
 function getOpacityStyle(node: BlendMixin): CSS {
+  if (node.opacity === 1) return {}
   return {
     opacity: `${node.opacity}`
   }
+}
+
+function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): CSS {
+  // TODO(jlfwong): Handle images & gradients
+
+  const ret: CSS = {}
+
+  const color = colorFromPaints(paints)
+
+  if (color !== null) {
+    ret['background'] = color
+  }
+
+  return ret
 }
