@@ -175,6 +175,8 @@ async function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): Promis
   const backgroundParts: string[] = []
 
   for (let paint of paints) {
+    if (!paint.visible) continue
+
     switch (paint.type) {
       case "SOLID": {
         backgroundParts.push(colorToCSS(paint.color, paint.opacity || 1.0))
@@ -189,7 +191,7 @@ async function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): Promis
           const img = figma.getImageByHash(hash)
           const bytes = await img.getBytesAsync()
           const encoded = base64encode(bytes)
-          backgroundParts.push(`url(data:image/png;base64,${encoded})`)
+          backgroundParts.push(`url(data:image/png;base64,${encoded}) no-repeat top left/contain`)
         }
       }
 
