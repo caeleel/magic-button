@@ -49,7 +49,6 @@ function App() {
     if (resp.status === 201) {
       const result = await resp.json()
       setSiteId(result.site_id)
-      console.log(result);
       parent.postMessage({ pluginMessage: { type: "netlify-site", site_id: result.site_id, url: result.url } }, '*');
     }
   }
