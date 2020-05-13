@@ -110,6 +110,7 @@ async function convertPage(node: PageNode): Promise<PageData> {
 async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
   const style: CSS = {
     ...getOpacityStyle(node),
+    ...await getStrokeStyleForPaints(node.strokeWeight, defaultForMixed(node.strokes, [])),
     ...await getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
   }
 
@@ -132,6 +133,8 @@ async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNo
 async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
   const style: CSS = {
     ...getOpacityStyle(node),
+    ...getRoundedRectangleStyle(node),
+    ...await getStrokeStyleForPaints(node.strokeWeight, defaultForMixed(node.strokes, [])),
     ...await getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
   }
   const layout = getLayoutStyle(node)
@@ -149,6 +152,8 @@ function arrayBufferToString(buffer: ArrayBuffer): string {
 async function convertRectangle(node: RectangleNode): Promise<string> {
   const style: CSS = {
     ...getOpacityStyle(node),
+    ...getRoundedRectangleStyle(node),
+    ...await getStrokeStyleForPaints(node.strokeWeight, defaultForMixed(node.strokes, [])),
     ...await getBackgroundStyleForPaints(defaultForMixed(node.fills, [])),
   }
   const layout = getLayoutStyle(node)
@@ -375,6 +380,45 @@ function getOpacityStyle(node: BlendMixin): CSS {
   return {
     opacity: `${node.opacity}`
   }
+}
+
+function getRoundedRectangleStyle(node: RectangleNode | FrameNode): CSS {
+  return {"border-radius": `${node.topLeftRadius}px ${node.topRightRadius}px ${node.bottomRightRadius}px ${node.bottomLeftRadius}px`}
+}
+
+async function getStrokeStyleForPaints(width: number, paints: ReadonlyArray<Paint>): Promise<CSS> {
+  for (let paint of paints) {
+    if (!paint.visible) continue
+
+    switch (paint.type) {
+      case "SOLID": {
+        return { border: `${width}px solid ${colorToCSS(paint.color, paint.opacity || 1.0)}` }
+      }
+
+      case "IMAGE": {
+        const hash = paint.imageHash
+        if (hash != null) {
+          const img = figma.getImageByHash(hash)
+          const bytes = await img.getBytesAsync()
+
+          // TODO(jlfwong): Support images other than .pngs
+          const path = `/images/${hash}.png`
+          images[hash] = { bytes, path }
+          return { "border-image": `url(${path}) ${width} round`}
+        }
+      }
+
+      case "GRADIENT_LINEAR":
+      case "GRADIENT_RADIAL":
+      case "GRADIENT_DIAMOND":
+      case "GRADIENT_ANGULAR": {
+        // TODO(jlfwong): Handle gradients
+        return {}
+      }
+    }
+  }
+
+  return {}
 }
 
 async function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): Promise<CSS> {
