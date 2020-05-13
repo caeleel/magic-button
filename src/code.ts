@@ -2,7 +2,7 @@ import { convert } from "./convert";
 
 async function run() {
   try {
-    const result = await convert(figma.root)
+    const result = await convert(figma.currentPage)
     figma.ui.postMessage({
       type: "conversion-result",
       content: result

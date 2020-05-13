@@ -8,14 +8,14 @@ export interface FontInUse {
 }
 
 export interface ConversionResult {
-  pageData: PageData
+  frameIdToHtml: {[id: string]: string}
   images: {[hash: string]: ImageToUpload}
   fonts: {[name: string]: boolean}
+  startFrameId: string
+  frameIdToPath: {[id: string]: string}
 }
 
-export type PageData = {[path: string]: string}
-
-function mergePageData(a: PageData, b: PageData) {
+function mergePageData(a: {[id: string]: string}, b: {[id: string]: string}) {
   return {...a, ...b}
 }
 
@@ -32,12 +32,57 @@ function h(tagName: string, name: string, style: CSS, layout: Layout, content: s
 
 let images: ConversionResult["images"]
 let fonts: ConversionResult["fonts"]
+let frameIdToPath: ConversionResult["frameIdToPath"]
 
-export async function convert(node: DocumentNode): Promise<ConversionResult> {
+function nameToPath(name: string): string {
+  name = name.toLowerCase()
+  return name.endsWith(".html") ? name : name.replace(/\W+/g, "-") + "/index.html"
+}
+
+export async function convert(node: PageNode): Promise<ConversionResult> {
   images = {}
   fonts = {}
-  const pageData = await convertDocument(node)
-  return {pageData, images, fonts}
+  frameIdToPath = {}
+
+  // Build the routing table
+  for (let pageChild of node.children) {
+    switch (pageChild.type) {
+      case "INSTANCE":
+      case "COMPONENT":
+      case "FRAME": {
+        const path = nameToPath(pageChild.name)
+        frameIdToPath[pageChild.id] = path
+        break
+      }
+    }
+  }
+
+  let startFrame = node.prototypeStartNode
+  if (startFrame == null) {
+    // No prototype start node specified. Fall back to top-left-most node
+    for (let pageChild of node.children) {
+      switch (pageChild.type) {
+        case "INSTANCE":
+        case "COMPONENT":
+        case "FRAME": {
+          if (!startFrame) {
+            startFrame = pageChild
+          } else {
+            if (pageChild.y < startFrame.y || (pageChild.y === startFrame.y && pageChild.x < startFrame.x)) {
+              startFrame = pageChild
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (startFrame == null) {
+    throw new Error("No start frame found! Page must contain a frame!")
+  }
+
+  const frameIdToHtml = await convertPage(node)
+  return {frameIdToHtml, images, fonts, frameIdToPath, startFrameId: startFrame.id}
 }
 
 async function convertNode(node: BaseNode): Promise<string> {
@@ -88,20 +133,20 @@ async function convertChildren(children: ReadonlyArray<BaseNode>): Promise<strin
   return (await Promise.all(allChildren.map(convertNode))).join("\n")
 }
 
-async function convertDocument(node: DocumentNode): Promise<PageData> {
+async function convertDocument(node: DocumentNode): Promise<ConversionResult["frameIdToHtml"]> {
   const perPageData = await Promise.all(node.children.map(convertPage))
-  let data: PageData = {}
+  let data: ConversionResult["frameIdToHtml"] = {}
   for (let page of perPageData) {
     data = mergePageData(data, page)
   }
   return data
 }
 
-async function convertPage(node: PageNode): Promise<PageData> {
-  let data: PageData = {}
+async function convertPage(node: PageNode): Promise<ConversionResult["frameIdToHtml"]> {
+  let data: ConversionResult["frameIdToHtml"] = {}
   for (let child of node.children) {
     if (child.type === "INSTANCE" || child.type === "COMPONENT" || child.type === "FRAME") {
-      data[child.name] = await convertTopLevelFrame(child)
+      data[child.id] = await convertTopLevelFrame(child)
     }
   }
   return data

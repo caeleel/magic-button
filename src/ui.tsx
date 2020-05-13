@@ -3,7 +3,7 @@ import * as ReactDOM from 'react-dom'
 import './ui.css'
 import sha1 from 'sha1'
 import { useRef, useState, useEffect } from 'react'
-import { PageData, ConversionResult } from './convert'
+import { ConversionResult } from './convert'
 
 const randomKey = Math.random(); // replace with stronger key later
 
@@ -48,7 +48,12 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
     return `<link href="https://fonts.googleapis.com/css2?family=${fontName}" rel="stylesheet">`
   })).join("")
 
-  for (let path in data.pageData) {
+  for (let frameId in data.frameIdToHtml) {
+    const path = data.frameIdToPath[frameId]
+    if (path == null) {
+      throw new Error(`No path for frame id ${frameId}`)
+    }
+
     const content = `<html><head>
     <title>${path}</title>
     <style>
@@ -71,11 +76,15 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
       pointer-events: auto;
     }
     </style>
-    </head>${fontLoadingHTML}<body>${data.pageData[path]}</body></html>`
+    </head>${fontLoadingHTML}<body>${data.frameIdToHtml[frameId]}</body></html>`
 
     const hash = sha1(content)
     site.files[path] = hash
     site.blobs[hash] = content
+
+    if (frameId === data.startFrameId) {
+      site.files["index.html"] = hash
+    }
   }
 
   for (let imageHash in data.images) {
@@ -83,6 +92,8 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
     site.files[img.path] = imageHash
     site.blobs[imageHash] = img.bytes
   }
+
+  console.log(site)
 
   return site
 }
@@ -110,11 +121,7 @@ function App() {
         console.log("conversion-result", msg.content)
         const result: ConversionResult = msg.content
         setConversionResult(result)
-        for (let path in result.pageData) {
-          // TODO(jlfwong): Get images working
-          // in the preview
-          setPreviewContent(result.pageData[path])
-        }
+        setPreviewContent(result.frameIdToHtml[result.startFrameId])
       }
     }
     window.addEventListener("message", handleMessage)
