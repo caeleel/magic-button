@@ -38,6 +38,31 @@ interface PackagedWebsite {
   blobs: {[hash: string]: string | Uint8Array}
 }
 
+// This function must not depend on anything else in this file! This is serialized to a string
+// and injected into the running page.
+const injectRuntime = (frameIdToPath: ConversionResult["frameIdToPath"], actions: ConversionResult["actions"]) => {
+  console.log("Booting magic button website", frameIdToPath, actions)
+
+  ;(window as any)["magic_runAction"] = function(actionId: number) {
+    const action = actions[actionId]
+    if (action.type === "NODE" && action.navigation === "NAVIGATE") {
+      if (action.destinationId !== null) {
+        let path = frameIdToPath[action.destinationId]
+        if (path != null) {
+          if (path.endsWith("index.html")) {
+            path = path.slice(0, path.indexOf("index.html"))
+          }
+          window.location.href = path
+        }
+      }
+    }
+  }
+}
+
+function serializeRuntime(result: ConversionResult): string {
+  return `<script>(${injectRuntime.toString()})(${JSON.stringify(result.frameIdToPath)}, ${JSON.stringify(result.actions)})</script>`
+}
+
 function compileForNetlify(data: ConversionResult): PackagedWebsite {
   const site: PackagedWebsite = {
     files: {},
@@ -76,7 +101,10 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
       pointer-events: auto;
     }
     </style>
-    </head>${fontLoadingHTML}<body>${data.frameIdToHtml[frameId]}</body></html>`
+    </head>
+    ${fontLoadingHTML}
+    ${serializeRuntime(data)}
+    <body>${data.frameIdToHtml[frameId]}</body></html>`
 
     const hash = sha1(content)
     site.files[path] = hash

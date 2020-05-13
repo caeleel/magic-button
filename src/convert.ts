@@ -13,6 +13,7 @@ export interface ConversionResult {
   fonts: {[name: string]: boolean}
   startFrameId: string
   frameIdToPath: {[id: string]: string}
+  actions: Action[]
 }
 
 function mergePageData(a: {[id: string]: string}, b: {[id: string]: string}) {
@@ -25,24 +26,26 @@ function toStyleString(style: CSS): string {
   }).join(`;`)
 }
 
-function h(tagName: string, name: string, style: CSS, layout: Layout, content: string) {
+function h(tagName: string, name: string, style: CSS, layout: Layout, eventHandling: string, content: string) {
   // TODO(jlfwong): Remove the name=... for debugging
-  return `<div class="outerDiv" style='${toStyleString(layout.outer)}'><${tagName} class="innerDiv" name="${name}" style='${toStyleString({ ...layout.inner, ...style })}'>${content}</${tagName}></div>`
+  return `<div class="outerDiv" style='${toStyleString(layout.outer)}'><${tagName} class="innerDiv" name="${name}" ${eventHandling} style='${toStyleString({ ...layout.inner, ...style })}'>${content}</${tagName}></div>`
 }
 
 let images: ConversionResult["images"]
 let fonts: ConversionResult["fonts"]
 let frameIdToPath: ConversionResult["frameIdToPath"]
+let actions: ConversionResult["actions"]
 
 function nameToPath(name: string): string {
   name = name.toLowerCase()
-  return name.endsWith(".html") ? name : name.replace(/\W+/g, "-") + "/index.html"
+  return "/" + (name.endsWith(".html") ? name : name.replace(/\W+/g, "-") + "/index.html")
 }
 
 export async function convert(node: PageNode): Promise<ConversionResult> {
   images = {}
   fonts = {}
   frameIdToPath = {}
+  actions = []
 
   // Build the routing table
   for (let pageChild of node.children) {
@@ -82,7 +85,7 @@ export async function convert(node: PageNode): Promise<ConversionResult> {
   }
 
   const frameIdToHtml = await convertPage(node)
-  return {frameIdToHtml, images, fonts, frameIdToPath, startFrameId: startFrame.id}
+  return {frameIdToHtml, images, fonts, frameIdToPath, startFrameId: startFrame.id, actions}
 }
 
 async function convertNode(node: BaseNode): Promise<string> {
@@ -133,15 +136,6 @@ async function convertChildren(children: ReadonlyArray<BaseNode>): Promise<strin
   return (await Promise.all(allChildren.map(convertNode))).join("\n")
 }
 
-async function convertDocument(node: DocumentNode): Promise<ConversionResult["frameIdToHtml"]> {
-  const perPageData = await Promise.all(node.children.map(convertPage))
-  let data: ConversionResult["frameIdToHtml"] = {}
-  for (let page of perPageData) {
-    data = mergePageData(data, page)
-  }
-  return data
-}
-
 async function convertPage(node: PageNode): Promise<ConversionResult["frameIdToHtml"]> {
   let data: ConversionResult["frameIdToHtml"] = {}
   for (let child of node.children) {
@@ -150,6 +144,40 @@ async function convertPage(node: PageNode): Promise<ConversionResult["frameIdToH
     }
   }
   return data
+}
+
+function eventHandlingAttributes(reactions: ReadonlyArray<Reaction>): string {
+  let attributes = []
+
+  for (let {trigger, action} of reactions) {
+    let attr: string | null = null
+    switch (trigger.type) {
+      case "ON_CLICK":
+        attr = "onclick"
+        break
+
+      case "MOUSE_DOWN":
+        attr = "onpointerdown"
+        break
+
+      case "ON_PRESS":
+      case "MOUSE_UP":
+        attr = "onpointerup"
+        break
+
+      case "ON_HOVER":
+        attr = "onmouseover"
+        break
+    }
+
+    if (attr == null) continue
+
+    const actionId = actions.length
+    actions.push(action)
+    attributes.push(`${attr}="magic_runAction(${actionId})"`)
+  }
+
+  return attributes.join(" ")
 }
 
 async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
@@ -172,7 +200,9 @@ async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNo
     }
   }
 
-  return h("div", node.name, style, layout, await convertChildren(node.children))
+  const events = eventHandlingAttributes(node.reactions)
+  if (events.length > 0) style["cursor"] = "pointer"
+  return h("div", node.name, style, layout, events, await convertChildren(node.children))
 }
 
 async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
@@ -187,7 +217,10 @@ async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Pro
   const usePlaceholder = node.constraints.horizontal !== "STRETCH"
   const children = await convertChildren(node.children)
   const content = usePlaceholder ? `<div style="width: ${layout.inner.width}; height: ${node.height}px"></div>` + children : children
-  return h("div", node.name, style, layout, content)
+
+  const events = eventHandlingAttributes(node.reactions)
+  if (events.length > 0) style["cursor"] = "pointer"
+  return h("div", node.name, style, layout, events, content)
 }
 
 function arrayBufferToString(buffer: ArrayBuffer): string {
@@ -203,7 +236,9 @@ async function convertRectangle(node: RectangleNode): Promise<string> {
   }
   const layout = getLayoutStyle(node)
   const usePlaceholder = node.constraints.horizontal !== "STRETCH"
-  return h("div", node.name, style, layout, usePlaceholder ? `<div style="width: ${layout.inner.width}; height: ${node.height}px"></div>` : "")
+  const events = eventHandlingAttributes(node.reactions)
+  if (events.length > 0) style["cursor"] = "pointer"
+  return h("div", node.name, style, layout, events, usePlaceholder ? `<div style="width: ${layout.inner.width}; height: ${node.height}px"></div>` : "")
 }
 
 async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string> {
@@ -211,7 +246,10 @@ async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string>
 
   try {
     const svg = await node.exportAsync({format: 'SVG'})
-    return h("div", node.name, {}, getLayoutStyle(node), arrayBufferToString(svg))
+    const events = eventHandlingAttributes(node.reactions)
+    let style: CSS = {}
+    if (events.length > 0) style["cursor"] = "pointer"
+    return h("div", node.name, {}, getLayoutStyle(node), events, arrayBufferToString(svg))
   } catch(e) {
     console.error("Failed to convert shape", node, e)
     return ""
@@ -309,7 +347,9 @@ function convertText(node: TextNode): string {
     style['font-size'] = `${fontSize}px`
   }
 
-  return h("div", node.name, style, getLayoutStyle(node), `<div>${node.characters}</div>`)
+  const events = eventHandlingAttributes(node.reactions)
+  if (events.length > 0) style["cursor"] = "pointer"
+  return h("div", node.name, style, getLayoutStyle(node), events, `<div>${node.characters}</div>`)
 }
 
 type CSS = { [key: string]: string | number }
