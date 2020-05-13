@@ -382,7 +382,7 @@ function getOpacityStyle(node: BlendMixin): CSS {
   }
 }
 
-function getRoundedRectangleStyle(node: RectangleNode | FrameNode): CSS {
+function getRoundedRectangleStyle(node: RectangleCornerMixin): CSS {
   return {"border-radius": `${node.topLeftRadius}px ${node.topRightRadius}px ${node.bottomRightRadius}px ${node.bottomLeftRadius}px`}
 }
 
