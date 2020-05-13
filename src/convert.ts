@@ -252,14 +252,14 @@ function convertText(node: TextNode): string {
     }
   }
 
+  style['text-align'] = node.textAlignHorizontal.toLowerCase()
+
   const fontSize = defaultForMixed(node.fontSize, null)
   if (fontSize != null) {
     style['font-size'] = `${fontSize}px`
   }
 
-  style['text-align'] = node.textAlignHorizontal.toLowerCase()
-
-  return h("div", node.name, style, getLayoutStyle(node), node.characters)
+  return h("div", node.name, style, getLayoutStyle(node), `<div>${node.characters}</div>`)
 }
 
 type CSS = { [key: string]: string | number }
@@ -350,6 +350,21 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
     inner["margin-top"] = `${bounds.top}px`
     inner["margin-bottom"] = `${bounds.bottom}px`
     inner["min-height"] = `${bounds.height}px`
+  }
+
+  if (node.type === "TEXT") {
+    inner["display"] = "flex"
+    if (node.textAlignVertical === "CENTER") {
+      inner["align-items"] = "center"
+    } else if (node.textAlignVertical === "BOTTOM") {
+      inner["align-items"] = "flex-end"
+    }
+
+    if (node.textAlignHorizontal === "CENTER") {
+      inner["justify-content"] = "center"
+    } else if (node.textAlignHorizontal === "RIGHT") {
+      inner["justify-content"] = "flex-end"
+    }
   }
 
   return { inner, outer }
