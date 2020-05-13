@@ -45,15 +45,25 @@ const injectRuntime = (frameIdToPath: ConversionResult["frameIdToPath"], actions
 
   ;(window as any)["magic_runAction"] = function(actionId: number) {
     const action = actions[actionId]
-    if (action.type === "NODE" && action.navigation === "NAVIGATE") {
-      if (action.destinationId !== null) {
-        let path = frameIdToPath[action.destinationId]
-        if (path != null) {
-          if (path.endsWith("index.html")) {
-            path = path.slice(0, path.indexOf("index.html"))
+    switch(action.type) {
+      case "NODE": {
+        if (action.navigation === "NAVIGATE") {
+          if (action.destinationId !== null) {
+            let path = frameIdToPath[action.destinationId]
+            if (path != null) {
+              if (path.endsWith("index.html")) {
+                path = path.slice(0, path.indexOf("index.html"))
+              }
+              window.location.href = path
+            }
           }
-          window.location.href = path
         }
+        break
+      }
+
+      case "URL": {
+        window.location.href = action.url
+        break
       }
     }
   }
