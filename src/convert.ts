@@ -80,7 +80,7 @@ async function convertChildren(children: ReadonlyArray<BaseNode>): Promise<strin
   function appendChildren(children: ReadonlyArray<BaseNode>) {
     for (const child of children) {
       if (child.type !== "GROUP") allChildren.push(child)
-      else appendChildren(child.children)
+      else if (child.visible) appendChildren(child.children)
     }
   }
   appendChildren(children)
@@ -121,7 +121,7 @@ async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNo
       position: "relative",
       top: 0,
       left: 0,
-      width: '100vw',
+      width: '100%',
       height: '100vh',
     }
   }
@@ -134,8 +134,12 @@ async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Pro
     ...getOpacityStyle(node),
     ...await getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
   }
+  const layout = getLayoutStyle(node)
 
-  return h("div", node.name, style, getLayoutStyle(node), await convertChildren(node.children))
+  const usePlaceholder = node.constraints.horizontal !== "STRETCH"
+  const children = await convertChildren(node.children)
+  const content = usePlaceholder ? `<div style="width: ${layout.inner.width}; height: ${node.height}px"></div>` + children : children
+  return h("div", node.name, style, layout, content)
 }
 
 function arrayBufferToString(buffer: ArrayBuffer): string {
@@ -147,21 +151,17 @@ async function convertRectangle(node: RectangleNode): Promise<string> {
     ...getOpacityStyle(node),
     ...await getBackgroundStyleForPaints(defaultForMixed(node.fills, [])),
   }
-  return h("div", node.name, style, getLayoutStyle(node), "")
+  const layout = getLayoutStyle(node)
+  const usePlaceholder = node.constraints.horizontal !== "STRETCH"
+  return h("div", node.name, style, layout, usePlaceholder ? `<div style="width: ${layout.inner.width}; height: ${node.height}px"></div>` : "")
 }
 
 async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string> {
   // We don't include opacity here because it gets baked into the node
-  let layout = emptyLayout
-
-  // basically anything that isn't BOOLEAN_OPERATION
-  if (node.type === "VECTOR" || node.type === "POLYGON" || node.type === "STAR" || node.type === "ELLIPSE" || node.type === "LINE") {
-    layout = getLayoutStyle(node)
-  }
 
   try {
     const svg = await node.exportAsync({format: 'SVG'})
-    return h("div", node.name, {}, layout, arrayBufferToString(svg))
+    return h("div", node.name, {}, getLayoutStyle(node), arrayBufferToString(svg))
   } catch(e) {
     console.error("Failed to convert shape", node, e)
     return ""
@@ -280,7 +280,7 @@ interface Bounds {
   height: number
 }
 
-function getLayoutStyle(node: BaseNode & LayoutMixin & ConstraintMixin): Layout {
+function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
   const x = node.absoluteTransform[0][2]
   const y = node.absoluteTransform[1][2]
 
@@ -296,16 +296,20 @@ function getLayoutStyle(node: BaseNode & LayoutMixin & ConstraintMixin): Layout 
 
   if (parent) {
     bounds = {
-      left: Math.round(x - px),
-      right: Math.round(px + parent.width - (x + node.width)),
-      top: Math.round(y - py),
-      bottom: Math.round(py + parent.height - (y + node.height)),
-      width: Math.round(node.width),
-      height: Math.round(node.height),
+      left: x - px,
+      right: px + parent.width - (x + node.width),
+      top: y - py,
+      bottom: py + parent.height - (y + node.height),
+      width: node.width,
+      height: node.height,
     }
   }
 
-  const cHorizontal = node.constraints.horizontal
+  let candidate = node as BaseNode & ChildrenMixin
+  while (!('constraints' in candidate)) {
+    candidate = candidate.children[0] as BaseNode & ChildrenMixin
+  }
+  const cHorizontal = (candidate as ConstraintMixin).constraints.horizontal
   const inner: { [key: string]: number | string } = {}
   const outer: { [key: string]: number | string } = {}
 
@@ -344,7 +348,7 @@ function getLayoutStyle(node: BaseNode & LayoutMixin & ConstraintMixin): Layout 
 
   if (bounds != null) {
     inner["margin-top"] = `${bounds.top}px`
-    inner["margin-bottom"] = `${-bounds.top-bounds.height}px`
+    inner["margin-bottom"] = `${bounds.bottom}px`
     inner["min-height"] = `${bounds.height}px`
   }
 

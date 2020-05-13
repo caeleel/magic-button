@@ -50,15 +50,21 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
 
   for (let path in data.pageData) {
     const content = `<html><head>
-    <title>${path}</title><
+    <title>${path}</title>
     <style>
+    body {
+      padding: 0;
+      margin: 0;
+      width: 100%;
+      overflow-x: hidden;
+    }
     .outerDiv {
-      position: relative;
+      position: absolute;
+      top: 0;
       display: flex;
       width: 100%;
       pointer-events: none;
     }
-
     .innerDiv {
       position: relative;
       box-sizing: border-box;
