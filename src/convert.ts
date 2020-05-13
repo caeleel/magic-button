@@ -25,9 +25,9 @@ function toStyleString(style: CSS): string {
   }).join(`;`)
 }
 
-function h(tagName: string, name: string, style: CSS, content: string) {
+function h(tagName: string, name: string, style: CSS, layout: Layout, content: string) {
   // TODO(jlfwong): Remove the name=... for debugging
-  return `<${tagName} name="${name}" style='${toStyleString(style)}'>${content}</${tagName}>`
+  return `<div class="outerDiv" style='${toStyleString(layout.outer)}'><${tagName} class="innerDiv" name="${name}" style='${toStyleString({ ...layout.inner, ...style })}'>${content}</${tagName}></div>`
 }
 
 let images: ConversionResult["images"]
@@ -51,10 +51,10 @@ async function convertNode(node: BaseNode): Promise<string> {
       throw new Error(`Unexpected type ${node.type} in convertNode`)
 
     case "SLICE":
+    case "GROUP":
       return ""
 
     case "FRAME":
-    case "GROUP":
     case "COMPONENT":
     case "INSTANCE":
       return await convertFrame(node)
@@ -76,7 +76,16 @@ async function convertNode(node: BaseNode): Promise<string> {
 }
 
 async function convertChildren(children: ReadonlyArray<BaseNode>): Promise<string> {
-  return (await Promise.all(children.map(convertNode))).join("\n")
+  const allChildren: BaseNode[] = []
+  function appendChildren(children: ReadonlyArray<BaseNode>) {
+    for (const child of children) {
+      if (child.type !== "GROUP") allChildren.push(child)
+      else appendChildren(child.children)
+    }
+  }
+  appendChildren(children)
+
+  return (await Promise.all(allChildren.map(convertNode))).join("\n")
 }
 
 async function convertDocument(node: DocumentNode): Promise<PageData> {
@@ -106,25 +115,27 @@ async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNo
 
   // TODO(jlfwong): This isn't actually what we want -- we just want this to
   // contain all the children.
-  style["position"] = "relative"
-  style["top"] = "0"
-  style["left"] = "0"
-  style["width"] = "100vw"
-  style["height"] = "100vh"
+  const layout: Layout = {
+    inner: { width: '100%' },
+    outer: {
+      position: "relative",
+      top: 0,
+      left: 0,
+      width: '100vw',
+      height: '100vh',
+    }
+  }
 
-  return h("div", node.name, style, await convertChildren(node.children))
+  return h("div", node.name, style, layout, await convertChildren(node.children))
 }
 
-async function convertFrame(node: FrameNode | GroupNode | ComponentNode | InstanceNode): Promise<string> {
-  const shouldWrapChildrenWithLayout = node.type !== "GROUP"
-
+async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
   const style: CSS = {
     ...getOpacityStyle(node),
     ...await getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
-    ...(shouldWrapChildrenWithLayout ? getLayoutStyle(node) : {})
   }
 
-  return h("div", node.name, style, await convertChildren(node.children))
+  return h("div", node.name, style, getLayoutStyle(node), await convertChildren(node.children))
 }
 
 function arrayBufferToString(buffer: ArrayBuffer): string {
@@ -134,18 +145,23 @@ function arrayBufferToString(buffer: ArrayBuffer): string {
 async function convertRectangle(node: RectangleNode): Promise<string> {
   const style: CSS = {
     ...getOpacityStyle(node),
-    ...getLayoutStyle(node),
     ...await getBackgroundStyleForPaints(defaultForMixed(node.fills, [])),
   }
-  return h("div", node.name, style, "")
+  return h("div", node.name, style, getLayoutStyle(node), "")
 }
 
 async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string> {
   // We don't include opacity here because it gets baked into the node
-  const style = getLayoutStyle(node)
+  let layout = emptyLayout
+
+  // basically anything that isn't BOOLEAN_OPERATION
+  if (node.type === "VECTOR" || node.type === "POLYGON" || node.type === "STAR" || node.type === "ELLIPSE" || node.type === "LINE") {
+    layout = getLayoutStyle(node)
+  }
+
   try {
     const svg = await node.exportAsync({format: 'SVG'})
-    return h("div", node.name, style, arrayBufferToString(svg))
+    return h("div", node.name, {}, layout, arrayBufferToString(svg))
   } catch(e) {
     console.error("Failed to convert shape", node, e)
     return ""
@@ -213,7 +229,6 @@ function convertText(node: TextNode): string {
 
   const style = {
     ...getOpacityStyle(node),
-    ...getLayoutStyle(node)
   }
   const color = colorFromPaints(defaultForMixed(node.fills, []))
   if (color != null) {
@@ -244,20 +259,96 @@ function convertText(node: TextNode): string {
 
   style['text-align'] = node.textAlignHorizontal.toLowerCase()
 
-  return h("div", node.name, style, node.characters)
+  return h("div", node.name, style, getLayoutStyle(node), node.characters)
 }
 
-type CSS = {[key: string]: string}
+type CSS = { [key: string]: string | number }
 
-function getLayoutStyle(node: BaseNode & LayoutMixin): CSS {
-  const {x, y, width, height} = node
-  return {
-    position: "absolute",
-    left: `${x.toFixed(0)}px`,
-    top: `${y.toFixed(0)}px`,
-    width: `${width.toFixed(0)}px`,
-    height: `${height.toFixed(0)}px`
+type Layout = {
+  inner: CSS
+  outer: CSS
+}
+
+const emptyLayout = { inner: {}, outer: {} }
+
+interface Bounds {
+  top: number
+  left: number
+  right: number
+  bottom: number
+  width: number
+  height: number
+}
+
+function getLayoutStyle(node: BaseNode & LayoutMixin & ConstraintMixin): Layout {
+  const x = node.absoluteTransform[0][2]
+  const y = node.absoluteTransform[1][2]
+
+  let parent = node.parent as BaseNode & LayoutMixin
+  while (parent.type === "GROUP") {
+    parent = parent.parent as BaseNode & LayoutMixin
   }
+
+  const px = parent.absoluteTransform[0][2]
+  const py = parent.absoluteTransform[1][2]
+
+  let bounds: Bounds | null = null
+
+  if (parent) {
+    bounds = {
+      left: Math.round(x - px),
+      right: Math.round(px + parent.width - (x + node.width)),
+      top: Math.round(y - py),
+      bottom: Math.round(py + parent.height - (y + node.height)),
+      width: Math.round(node.width),
+      height: Math.round(node.height),
+    }
+  }
+
+  const cHorizontal = node.constraints.horizontal
+  const inner: { [key: string]: number | string } = {}
+  const outer: { [key: string]: number | string } = {}
+
+  if (cHorizontal === "STRETCH") {
+    if (bounds != null) {
+      inner["margin-left"] = `${bounds.left}px`
+      inner["margin-right"] = `${bounds.right}px`
+      inner["flex-grow"] = 1
+    }
+  } else if (cHorizontal === "MAX") {
+    outer["justify-content"] = "flex-end"
+    if (bounds != null) {
+      inner["margin-right"] = `${bounds.right}px`
+      inner["width"] = `${bounds.width}px`
+      inner["min-width"] = `${bounds.width}px`
+    }
+  } else if (cHorizontal === "CENTER") {
+    outer["justify-content"] = "center"
+    if (bounds != null) {
+      inner["width"] = `${bounds.width}px`
+      if (bounds.left && bounds.right) inner["margin-left"] = `${bounds.left - bounds.right}px`
+    }
+  } else if (cHorizontal === "SCALE") {
+    if (bounds != null) {
+      const parentWidth = bounds.left + bounds.width + bounds.right
+      inner["width"] = `${bounds.width * 100 / parentWidth}%`
+      inner["margin-left"] = `${bounds.left * 100 / parentWidth}%`
+    }
+  } else {
+    if (bounds != null) {
+      inner["margin-left"] = `${bounds.left}px`
+      inner["width"] = `${bounds.width}px`
+      inner["min-width"] = `${bounds.width}px`
+    }
+  }
+
+  if (bounds != null) {
+    inner["margin-top"] = `${bounds.top}px`
+    inner["margin-bottom"] = `${-bounds.top-bounds.height}px`
+    inner["min-height"] = `${bounds.height}px`
+  }
+
+  return { inner, outer }
 }
 
 function getOpacityStyle(node: BlendMixin): CSS {

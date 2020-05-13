@@ -49,7 +49,24 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
   })).join("")
 
   for (let path in data.pageData) {
-    const content = `<html><head><title>${path}</title></head>${fontLoadingHTML}<body>${data.pageData[path]}</body></html>`
+    const content = `<html><head>
+    <title>${path}</title><
+    <style>
+    .outerDiv {
+      position: relative;
+      display: flex;
+      width: 100%;
+      pointer-events: none;
+    }
+
+    .innerDiv {
+      position: relative;
+      box-sizing: border-box;
+      pointer-events: auto;
+    }
+    </style>
+    </head>${fontLoadingHTML}<body>${data.pageData[path]}</body></html>`
+
     const hash = sha1(content)
     site.files[path] = hash
     site.blobs[hash] = content
