@@ -16,10 +16,6 @@ export interface ConversionResult {
   actions: Action[]
 }
 
-function mergePageData(a: {[id: string]: string}, b: {[id: string]: string}) {
-  return {...a, ...b}
-}
-
 function toStyleString(style: CSS): string {
   return Object.keys(style).map(key => {
     return `${key}: ${style[key]}`
@@ -99,8 +95,10 @@ async function convertNode(node: BaseNode): Promise<string> {
       throw new Error(`Unexpected type ${node.type} in convertNode`)
 
     case "SLICE":
-    case "GROUP":
       return ""
+
+    case "GROUP":
+      return await convertAutolayoutGroup(node)
 
     case "FRAME":
     case "COMPONENT":
@@ -128,7 +126,13 @@ async function convertChildren(children: ReadonlyArray<BaseNode>): Promise<strin
   function appendChildren(children: ReadonlyArray<BaseNode>) {
     for (const child of children) {
       if (child.type !== "GROUP") allChildren.push(child)
-      else if (child.visible) appendChildren(child.children)
+      else if (child.visible) {
+        if (child.parent && 'layoutMode' in child.parent && child.parent.layoutMode !== "NONE") {
+          allChildren.push(child)
+        } else {
+          appendChildren(child.children)
+        }
+      }
     }
   }
   appendChildren(children)
@@ -180,6 +184,11 @@ function eventHandlingAttributes(reactions: ReadonlyArray<Reaction>): string {
   return attributes.join(" ")
 }
 
+async function convertAutolayoutGroup(node: GroupNode): Promise<string> {
+  const flexDirection = (node.parent! as FrameNode).layoutMode === "VERTICAL" ? "column" : "row"
+  return `<div style="display: flex; flex-direction: ${flexDirection}">${await convertChildren(node.children)}</div>`
+}
+
 async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
   const style: CSS = {
     ...getOpacityStyle(node),
@@ -225,7 +234,7 @@ async function convertRectangle(node: RectangleNode): Promise<string> {
   const usePlaceholder = node.constraints.horizontal !== "STRETCH"
   const events = eventHandlingAttributes(node.reactions)
   if (events.length > 0) style["cursor"] = "pointer"
-  return h("div", node.name, style, layout, events, usePlaceholder ? `<div style="width: ${layout.inner.width}; height: ${node.height}px"></div>` : "")
+  return h("div", node.name, style, layout, events, usePlaceholder ? `<div style="width: ${node.width}; height: ${node.height}px"></div>` : "")
 }
 
 async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string> {
@@ -361,27 +370,28 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
   const y = node.absoluteTransform[1][2]
   let outerClass = 'outerDiv'
 
-  let parent = node.parent as BaseNode & LayoutMixin
+  let parent = node.parent as BaseNode & LayoutMixin & ChildrenMixin
   let lastGroupParent: GroupNode | null = null
+  let isFirstChild = parent.children.indexOf(node as SceneNode) === 0
+
   while (parent.type === "GROUP") {
     lastGroupParent = parent
-    parent = parent.parent as BaseNode & LayoutMixin
+    parent = parent.parent as BaseNode & LayoutMixin & ChildrenMixin
+    if (!('layoutMode' in parent)) {
+      isFirstChild = isFirstChild && (parent.children.indexOf(lastGroupParent) === 0)
+    }
   }
 
   let px = parent.absoluteTransform[0][2]
   let py = parent.absoluteTransform[1][2]
 
-  let bounds: Bounds | null = null
-
-  if (parent) {
-    bounds = {
-      left: x - px,
-      right: px + parent.width - (x + node.width),
-      top: y - py,
-      bottom: py + parent.height - (y + node.height),
-      width: node.width,
-      height: node.height,
-    }
+  const bounds = {
+    left: x - px,
+    right: px + parent.width - (x + node.width),
+    top: y - py,
+    bottom: py + parent.height - (y + node.height),
+    width: node.width,
+    height: node.height,
   }
 
   let candidate = node as BaseNode & ChildrenMixin
@@ -393,69 +403,115 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
   const outer: { [key: string]: number | string } = {}
 
   let cHorizontal = (candidate as ConstraintMixin).constraints.horizontal
-  if (parent && 'layoutMode' in parent && parent.layoutMode === "VERTICAL") {
+  let vHorizontal = (candidate as ConstraintMixin).constraints.vertical
+
+  if ('layoutMode' in parent && parent.layoutMode === "VERTICAL") {
     cHorizontal = lastGroupParent ? lastGroupParent.layoutAlign : node.layoutAlign
 
     outerClass = "autolayoutVchild"
 
-    if (lastGroupParent && bounds) {
+    if (lastGroupParent) {
       outer["padding-bottom"] = `${lastGroupParent.height - bounds.height - (node.y - lastGroupParent.y)}px`
     }
 
-    const siblings = node.parent!.children
-    const sibIndex = siblings.indexOf(node as SceneNode)
-    if (sibIndex > 0) {
-      const prevSibling = siblings[sibIndex-1]
+    if (!isFirstChild) {
       if (lastGroupParent && bounds) {
         outer["margin-top"] = `${-lastGroupParent.height + (node.y - lastGroupParent.y)}px`
-      } else {
+      } else if (parent.constraints.vertical !== "STRETCH") {
         outer["margin-top"] = `${parent.itemSpacing}px`
       }
-    } else if (lastGroupParent && lastGroupParent.parent!.children.indexOf(lastGroupParent) !== 0) {
+    } else if (parent.constraints.vertical !== "STRETCH" && lastGroupParent && lastGroupParent.parent!.children.indexOf(lastGroupParent) !== 0) {
       outer["margin-top"] = `${parent.itemSpacing}px`
     }
-  } else {
-    if (bounds != null) {
-      inner["margin-top"] = `${bounds.top}px`
-      inner["margin-bottom"] = `${bounds.bottom}px`
-      inner["min-height"] = `${bounds.height}px`
+
+    if (node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE") {
+      if (node.layoutMode === "NONE") {
+        outer["min-height"] = `${bounds.height}px`
+      }
+    }
+  } else if ('layoutMode' in parent && parent.layoutMode === "HORIZONTAL") {
+    vHorizontal = lastGroupParent ? lastGroupParent.layoutAlign : node.layoutAlign
+
+    outerClass = "autolayoutHchild"
+
+    if (lastGroupParent) {
+      outer["padding-right"] = `${lastGroupParent.width - bounds.width - (node.x - lastGroupParent.x)}px`
+    }
+
+    if (!isFirstChild) {
+      if (lastGroupParent && bounds) {
+        outer["margin-left"] = `${-lastGroupParent.width + (node.x - lastGroupParent.x)}px`
+      } else if (parent.constraints.horizontal !== "STRETCH") {
+        outer["margin-left"] = `${parent.itemSpacing}px`
+      }
+    } else if (parent.constraints.horizontal !== "STRETCH" && lastGroupParent && lastGroupParent.parent!.children.indexOf(lastGroupParent) !== 0) {
+      outer["margin-left"] = `${parent.itemSpacing}px`
     }
   }
 
   if ('layoutMode' in node && node.layoutMode !== "NONE") {
-    inner["padding"] = `${node.verticalPadding}px ${node.horizontalPadding}px`
+    inner["display"] = "flex"
+    if (node.layoutMode === "VERTICAL") {
+      inner["flex-direction"] = "column"
+      if (node.constraints.vertical === "STRETCH") {
+        inner["justify-content"] = "space-between"
+      }
+      inner["padding"] = `${node.verticalPadding}px 0`
+    } else {
+      if (node.constraints.horizontal === "STRETCH") {
+        inner["justify-content"] = "space-between"
+      }
+      inner["padding"] = `0 ${node.horizontalPadding}px`
+    }
   }
 
-  if (cHorizontal === "STRETCH") {
-    if (bounds != null) {
+  if (outerClass !== "autolayoutHchild") {
+    if (cHorizontal === "STRETCH") {
       inner["margin-left"] = `${bounds.left}px`
       inner["margin-right"] = `${bounds.right}px`
       inner["flex-grow"] = 1
-    }
-  } else if (cHorizontal === "MAX") {
-    outer["justify-content"] = "flex-end"
-    if (bounds != null) {
+    } else if (cHorizontal === "MAX") {
+      outer["justify-content"] = "flex-end"
       inner["margin-right"] = `${bounds.right}px`
       inner["width"] = `${bounds.width}px`
       inner["min-width"] = `${bounds.width}px`
-    }
-  } else if (cHorizontal === "CENTER") {
-    outer["justify-content"] = "center"
-    if (bounds != null) {
+    } else if (cHorizontal === "CENTER") {
+      outer["justify-content"] = "center"
       inner["width"] = `${bounds.width}px`
       if (bounds.left && bounds.right) inner["margin-left"] = `${bounds.left - bounds.right}px`
-    }
-  } else if (cHorizontal === "SCALE") {
-    if (bounds != null) {
+    } else if (cHorizontal === "SCALE") {
       const parentWidth = bounds.left + bounds.width + bounds.right
       inner["width"] = `${bounds.width * 100 / parentWidth}%`
       inner["margin-left"] = `${bounds.left * 100 / parentWidth}%`
-    }
-  } else {
-    if (bounds != null) {
+    } else {
       inner["margin-left"] = `${bounds.left}px`
       inner["width"] = `${bounds.width}px`
       inner["min-width"] = `${bounds.width}px`
+    }
+  }
+
+  if (outerClass !== "autolayoutVchild") {
+    if (vHorizontal === "STRETCH") {
+      inner["margin-top"] = `${bounds.top}px`
+      inner["margin-bottom"] = `${bounds.bottom}px`
+      inner["flex-grow"] = 1
+    } else if (vHorizontal === "MAX") {
+      outer["align-items"] = "flex-end"
+      inner["margin-bottom"] = `${bounds.bottom}px`
+      inner["height"] = `${bounds.height}px`
+      inner["min-height"] = `${bounds.height}px`
+    } else if (vHorizontal === "CENTER") {
+      outer["align-items"] = "center"
+      inner["height"] = `${bounds.height}px`
+      inner["margin-top"] = `${bounds.top - bounds.bottom}px`
+    } else if (vHorizontal === "SCALE") {
+      const parentWidth = bounds.top + bounds.height + bounds.bottom
+      inner["height"] = `${bounds.height * 100 / parentWidth}%`
+      inner["margin-top"] = `${bounds.top * 100 / parentWidth}%`
+    } else {
+      inner["margin-top"] = `${bounds.top}px`
+      inner["height"] = `${bounds.height}px`
+      inner["min-height"] = `${bounds.height}px`
     }
   }
 
