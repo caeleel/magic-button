@@ -105,6 +105,11 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
       width: 100%;
       pointer-events: none;
     }
+    .autolayoutVchild {
+      width: 100%;
+      display: flex;
+      pointer-events: none;
+    }
     .innerDiv {
       position: relative;
       box-sizing: border-box;
@@ -114,7 +119,8 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
     </head>
     ${fontLoadingHTML}
     ${serializeRuntime(data)}
-    <body>${data.frameIdToHtml[frameId]}</body></html>`
+    ${data.frameIdToHtml[frameId]}
+    </html>`
 
     const hash = sha1(content)
     site.files[path] = hash

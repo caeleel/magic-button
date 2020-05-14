@@ -28,7 +28,7 @@ function toStyleString(style: CSS): string {
 
 function h(tagName: string, name: string, style: CSS, layout: Layout, eventHandling: string, content: string) {
   // TODO(jlfwong): Remove the name=... for debugging
-  return `<div class="outerDiv" style='${toStyleString(layout.outer)}'><${tagName} class="innerDiv" name="${name}" ${eventHandling} style='${toStyleString({ ...layout.inner, ...style })}'>${content}</${tagName}></div>`
+  return `<div class="${layout.outerClass}" style='${toStyleString(layout.outer)}'><${tagName} class="innerDiv" name="${name}" ${eventHandling} style='${toStyleString({ ...layout.inner, ...style })}'>${content}</${tagName}></div>`
 }
 
 let images: ConversionResult["images"]
@@ -183,26 +183,13 @@ function eventHandlingAttributes(reactions: ReadonlyArray<Reaction>): string {
 async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
   const style: CSS = {
     ...getOpacityStyle(node),
-    ...await getStrokeStyleForPaints(node.strokeWeight, defaultForMixed(node.strokes, [])),
     ...await getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
-  }
-
-  // TODO(jlfwong): This isn't actually what we want -- we just want this to
-  // contain all the children.
-  const layout: Layout = {
-    inner: { width: '100%' },
-    outer: {
-      position: "relative",
-      top: 0,
-      left: 0,
-      width: '100%',
-      height: '100vh',
-    }
   }
 
   const events = eventHandlingAttributes(node.reactions)
   if (events.length > 0) style["cursor"] = "pointer"
-  return h("div", node.name, style, layout, events, await convertChildren(node.children))
+
+  return `<body ${events} style="${toStyleString(style)}">${await convertChildren(node.children)}</body>`
 }
 
 async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
@@ -214,7 +201,7 @@ async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Pro
   }
   const layout = getLayoutStyle(node)
 
-  const usePlaceholder = node.constraints.horizontal !== "STRETCH"
+  const usePlaceholder = node.constraints.horizontal !== "STRETCH" && node.layoutMode === "NONE"
   const children = await convertChildren(node.children)
   const content = usePlaceholder ? `<div style="width: ${layout.inner.width}; height: ${node.height}px"></div>` + children : children
 
@@ -349,17 +336,16 @@ function convertText(node: TextNode): string {
 
   const events = eventHandlingAttributes(node.reactions)
   if (events.length > 0) style["cursor"] = "pointer"
-  return h("div", node.name, style, getLayoutStyle(node), events, `<div>${node.characters}</div>`)
+  return h("div", node.name, style, getLayoutStyle(node), events, `<div>${node.characters.replace("\n", "<br>")}</div>`)
 }
 
 type CSS = { [key: string]: string | number }
 
 type Layout = {
+  outerClass: string
   inner: CSS
   outer: CSS
 }
-
-const emptyLayout = { inner: {}, outer: {} }
 
 interface Bounds {
   top: number
@@ -373,14 +359,17 @@ interface Bounds {
 function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
   const x = node.absoluteTransform[0][2]
   const y = node.absoluteTransform[1][2]
+  let outerClass = 'outerDiv'
 
   let parent = node.parent as BaseNode & LayoutMixin
+  let lastGroupParent: GroupNode | null = null
   while (parent.type === "GROUP") {
+    lastGroupParent = parent
     parent = parent.parent as BaseNode & LayoutMixin
   }
 
-  const px = parent.absoluteTransform[0][2]
-  const py = parent.absoluteTransform[1][2]
+  let px = parent.absoluteTransform[0][2]
+  let py = parent.absoluteTransform[1][2]
 
   let bounds: Bounds | null = null
 
@@ -399,9 +388,43 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
   while (!('constraints' in candidate)) {
     candidate = candidate.children[0] as BaseNode & ChildrenMixin
   }
-  const cHorizontal = (candidate as ConstraintMixin).constraints.horizontal
+
   const inner: { [key: string]: number | string } = {}
   const outer: { [key: string]: number | string } = {}
+
+  let cHorizontal = (candidate as ConstraintMixin).constraints.horizontal
+  if (parent && 'layoutMode' in parent && parent.layoutMode === "VERTICAL") {
+    cHorizontal = lastGroupParent ? lastGroupParent.layoutAlign : node.layoutAlign
+
+    outerClass = "autolayoutVchild"
+
+    if (lastGroupParent && bounds) {
+      outer["padding-bottom"] = `${lastGroupParent.height - bounds.height - (node.y - lastGroupParent.y)}px`
+    }
+
+    const siblings = node.parent!.children
+    const sibIndex = siblings.indexOf(node as SceneNode)
+    if (sibIndex > 0) {
+      const prevSibling = siblings[sibIndex-1]
+      if (lastGroupParent && bounds) {
+        outer["margin-top"] = `${-lastGroupParent.height + (node.y - lastGroupParent.y)}px`
+      } else {
+        outer["margin-top"] = `${parent.itemSpacing}px`
+      }
+    } else if (lastGroupParent && lastGroupParent.parent!.children.indexOf(lastGroupParent) !== 0) {
+      outer["margin-top"] = `${parent.itemSpacing}px`
+    }
+  } else {
+    if (bounds != null) {
+      inner["margin-top"] = `${bounds.top}px`
+      inner["margin-bottom"] = `${bounds.bottom}px`
+      inner["min-height"] = `${bounds.height}px`
+    }
+  }
+
+  if ('layoutMode' in node && node.layoutMode !== "NONE") {
+    inner["padding"] = `${node.verticalPadding}px ${node.horizontalPadding}px`
+  }
 
   if (cHorizontal === "STRETCH") {
     if (bounds != null) {
@@ -436,12 +459,6 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
     }
   }
 
-  if (bounds != null) {
-    inner["margin-top"] = `${bounds.top}px`
-    inner["margin-bottom"] = `${bounds.bottom}px`
-    inner["min-height"] = `${bounds.height}px`
-  }
-
   if (node.type === "TEXT") {
     inner["display"] = "flex"
     if (node.textAlignVertical === "CENTER") {
@@ -457,7 +474,7 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
     }
   }
 
-  return { inner, outer }
+  return { inner, outer, outerClass }
 }
 
 function getOpacityStyle(node: BlendMixin): CSS {
