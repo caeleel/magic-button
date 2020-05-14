@@ -204,6 +204,7 @@ async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNo
 async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
   const style: CSS = {
     ...getOpacityStyle(node),
+    ...getEffectsStyle(node),
     ...getRoundedRectangleStyle(node),
     ...await getStrokeStyleForPaints(node.strokeWeight, defaultForMixed(node.strokes, [])),
     ...await getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
@@ -226,6 +227,7 @@ function arrayBufferToString(buffer: ArrayBuffer): string {
 async function convertRectangle(node: RectangleNode): Promise<string> {
   const style: CSS = {
     ...getOpacityStyle(node),
+    ...getEffectsStyle(node),
     ...getRoundedRectangleStyle(node),
     ...await getStrokeStyleForPaints(node.strokeWeight, defaultForMixed(node.strokes, [])),
     ...await getBackgroundStyleForPaints(defaultForMixed(node.fills, [])),
@@ -313,6 +315,7 @@ function convertText(node: TextNode): string {
 
   const style = {
     ...getOpacityStyle(node),
+    ...getEffectsStyle(node),
   }
   const color = colorFromPaints(defaultForMixed(node.fills, []))
   if (color != null) {
@@ -538,6 +541,21 @@ function getOpacityStyle(node: BlendMixin): CSS {
   return {
     opacity: `${node.opacity}`
   }
+}
+
+function getEffectsStyle(node: BlendMixin): CSS {
+  const style: CSS = {}
+
+  for (const effect of node.effects) {
+    if (!effect.visible) continue
+    if (effect.type === "DROP_SHADOW" || effect.type === "INNER_SHADOW") {
+      style["box-shadow"] = `${effect.type === "INNER_SHADOW" ? "inset " : ""}${effect.offset.x}px ${effect.offset.y}px ${effect.radius}px ${colorToCSS(effect.color, effect.color.a)}`
+    } else if (effect.type === "BACKGROUND_BLUR") {
+      style["backdrop-filter"] = `blur(${effect.radius}px)`
+    }
+  }
+
+  return style
 }
 
 function getRoundedRectangleStyle(node: RectangleCornerMixin): CSS {
