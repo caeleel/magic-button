@@ -456,10 +456,13 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
       if (node.constraints.vertical === "STRETCH") {
         inner["justify-content"] = "space-between"
       }
-    } else if (node.constraints.horizontal === "STRETCH") {
-      inner["justify-content"] = "space-between"
+      inner["padding"] = `${node.verticalPadding}px 0`
+    } else {
+      if (node.constraints.horizontal === "STRETCH") {
+        inner["justify-content"] = "space-between"
+      }
+      inner["padding"] = `0 ${node.horizontalPadding}px`
     }
-    inner["padding"] = `${node.verticalPadding}px ${node.horizontalPadding}px`
   }
 
   if (outerClass !== "autolayoutHchild") {
