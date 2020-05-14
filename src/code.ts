@@ -13,7 +13,7 @@ async function run() {
 }
 
 function main() {
-  figma.showUI(__html__, {width: 360, height: 640});
+  figma.showUI(__html__, {width: 360, height: 180});
   run()
 
   sendToNetlify();

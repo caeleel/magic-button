@@ -301,17 +301,24 @@ function App() {
   }
 
   return <div>
-    <div style={{position: 'absolute', zIndex: 1000}}>
-      {token === "" && <button onClick={tryConnect}>Connect</button>}
-      {token !== "" && !deployed && <button onClick={() => deploySite()}>Magic</button>}
+    <div>
+      {token === "" && <>
+        <div id="copy-connect">Connect your Netlify account to start deploying your Figma designs as live sites!</div>
+        <button onClick={tryConnect}>Connect</button>
+      </>}
       {token !== "" && !deployed && <>
+        <span id="copy-select-site">Where would you like to deploy your site?</span>
         <select id="site" value={selected} onChange={changeSite}>
           {sitesToChoose.map((site) => <option key={site.id} value={site.id}>{site.url}</option>)}
         </select>
       </>}
-      {deployed && <a href={url} onClick={() => window.open(url)}>Visit site</a>}
+      {token !== "" && !deployed && <button onClick={() => deploySite()}>Make Magic</button>}
+      {deployed && <>
+        <div id="copy-success">Congrats, your site is now live!</div>
+        {/* <a id="site" href={url} onClick={() => window.open(url)}>Visit site</a> */}
+        <button onClick={() => window.open(url)}>Visit Site</button>
+      </>}
     </div>
-    <div dangerouslySetInnerHTML={{ __html: previewContent }} />
   </div>
 }
 
