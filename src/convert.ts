@@ -16,10 +16,6 @@ export interface ConversionResult {
   actions: Action[]
 }
 
-function mergePageData(a: {[id: string]: string}, b: {[id: string]: string}) {
-  return {...a, ...b}
-}
-
 function toStyleString(style: CSS): string {
   return Object.keys(style).map(key => {
     return `${key}: ${style[key]}`
@@ -99,8 +95,10 @@ async function convertNode(node: BaseNode): Promise<string> {
       throw new Error(`Unexpected type ${node.type} in convertNode`)
 
     case "SLICE":
-    case "GROUP":
       return ""
+
+    case "GROUP":
+      return await convertAutolayoutGroup(node)
 
     case "FRAME":
     case "COMPONENT":
@@ -128,7 +126,13 @@ async function convertChildren(children: ReadonlyArray<BaseNode>): Promise<strin
   function appendChildren(children: ReadonlyArray<BaseNode>) {
     for (const child of children) {
       if (child.type !== "GROUP") allChildren.push(child)
-      else if (child.visible) appendChildren(child.children)
+      else if (child.visible) {
+        if (child.parent && 'layoutMode' in child.parent && child.parent.layoutMode !== "NONE") {
+          allChildren.push(child)
+        } else {
+          appendChildren(child.children)
+        }
+      }
     }
   }
   appendChildren(children)
@@ -178,6 +182,11 @@ function eventHandlingAttributes(reactions: ReadonlyArray<Reaction>): string {
   }
 
   return attributes.join(" ")
+}
+
+async function convertAutolayoutGroup(node: GroupNode): Promise<string> {
+  const flexDirection = (node.parent! as FrameNode).layoutMode === "VERTICAL" ? "column" : "row"
+  return `<div style="display: flex; flex-direction: ${flexDirection}">${await convertChildren(node.children)}</div>`
 }
 
 async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
@@ -368,7 +377,7 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
   while (parent.type === "GROUP") {
     lastGroupParent = parent
     parent = parent.parent as BaseNode & LayoutMixin & ChildrenMixin
-    if (parent.type !== "FRAME") {
+    if (!('layoutMode' in parent)) {
       isFirstChild = isFirstChild && (parent.children.indexOf(lastGroupParent) === 0)
     }
   }
@@ -408,10 +417,10 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
     if (!isFirstChild) {
       if (lastGroupParent && bounds) {
         outer["margin-top"] = `${-lastGroupParent.height + (node.y - lastGroupParent.y)}px`
-      } else {
+      } else if (parent.constraints.vertical !== "STRETCH") {
         outer["margin-top"] = `${parent.itemSpacing}px`
       }
-    } else if (lastGroupParent && lastGroupParent.parent!.children.indexOf(lastGroupParent) !== 0) {
+    } else if (parent.constraints.vertical !== "STRETCH" && lastGroupParent && lastGroupParent.parent!.children.indexOf(lastGroupParent) !== 0) {
       outer["margin-top"] = `${parent.itemSpacing}px`
     }
 
@@ -432,10 +441,10 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
     if (!isFirstChild) {
       if (lastGroupParent && bounds) {
         outer["margin-left"] = `${-lastGroupParent.width + (node.x - lastGroupParent.x)}px`
-      } else {
+      } else if (parent.constraints.horizontal !== "STRETCH") {
         outer["margin-left"] = `${parent.itemSpacing}px`
       }
-    } else if (lastGroupParent && lastGroupParent.parent!.children.indexOf(lastGroupParent) !== 0) {
+    } else if (parent.constraints.horizontal !== "STRETCH" && lastGroupParent && lastGroupParent.parent!.children.indexOf(lastGroupParent) !== 0) {
       outer["margin-left"] = `${parent.itemSpacing}px`
     }
   }
@@ -444,6 +453,11 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
     inner["display"] = "flex"
     if (node.layoutMode === "VERTICAL") {
       inner["flex-direction"] = "column"
+      if (node.constraints.vertical === "STRETCH") {
+        inner["justify-content"] = "space-between"
+      }
+    } else if (node.constraints.horizontal === "STRETCH") {
+      inner["justify-content"] = "space-between"
     }
     inner["padding"] = `${node.verticalPadding}px ${node.horizontalPadding}px`
   }
