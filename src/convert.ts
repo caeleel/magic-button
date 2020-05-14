@@ -385,9 +385,32 @@ interface Bounds {
   height: number
 }
 
+function getBoundingBox(node: LayoutMixin): Rect {
+  const matrix = node.absoluteTransform
+  const m00 = matrix[0][0]
+  const m01 = matrix[0][1]
+  const m02 = matrix[0][2]
+  const m10 = matrix[1][0]
+  const m11 = matrix[1][1]
+  const m12 = matrix[1][2]
+  const { width, height } = node
+
+  const p1 = [m02, m12]
+  const p2 = [m01 * height + m02, m11 * height + m12]
+  const p3 = [m00 * width + m02, m10 * width + m12]
+  const p4 = [m00 * width + m01 * height + m02, m10 * width + m11 * height + m12]
+
+  const x = Math.min(p1[0], p2[0], p3[0], p4[0])
+  const y = Math.min(p1[1], p2[1], p3[1], p4[1])
+  const xMax = Math.max(p1[0], p2[0], p3[0], p4[0])
+  const yMax = Math.max(p1[1], p2[1], p3[1], p4[1])
+
+  return { x, y, width: xMax - x, height: yMax - y }
+}
+
 function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
-  const x = node.absoluteTransform[0][2]
-  const y = node.absoluteTransform[1][2]
+  const { x, y, width, height } = getBoundingBox(node)
+
   let outerClass = 'outerDiv'
 
   let parent = node.parent as BaseNode & LayoutMixin & ChildrenMixin
@@ -402,16 +425,17 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
     }
   }
 
-  let px = parent.absoluteTransform[0][2]
-  let py = parent.absoluteTransform[1][2]
+  const parentBounds = getBoundingBox(parent)
+  let px = parentBounds.x
+  let py = parentBounds.y
 
   const bounds = {
     left: x - px,
-    right: px + parent.width - (x + node.width),
+    right: px + parentBounds.width - (x + width),
     top: y - py,
-    bottom: py + parent.height - (y + node.height),
-    width: node.width,
-    height: node.height,
+    bottom: py + parentBounds.height - (y + height),
+    width: width,
+    height: height,
   }
 
   let candidate = node as BaseNode & ChildrenMixin
