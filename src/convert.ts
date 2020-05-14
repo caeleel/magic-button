@@ -371,17 +371,13 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
   let px = parent.absoluteTransform[0][2]
   let py = parent.absoluteTransform[1][2]
 
-  let bounds: Bounds | null = null
-
-  if (parent) {
-    bounds = {
-      left: x - px,
-      right: px + parent.width - (x + node.width),
-      top: y - py,
-      bottom: py + parent.height - (y + node.height),
-      width: node.width,
-      height: node.height,
-    }
+  const bounds = {
+    left: x - px,
+    right: px + parent.width - (x + node.width),
+    top: y - py,
+    bottom: py + parent.height - (y + node.height),
+    width: node.width,
+    height: node.height,
   }
 
   let candidate = node as BaseNode & ChildrenMixin
@@ -391,6 +387,8 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
 
   const inner: { [key: string]: number | string } = {}
   const outer: { [key: string]: number | string } = {}
+  const siblings = node.parent!.children
+  const sibIndex = siblings.indexOf(node as SceneNode)
 
   let cHorizontal = (candidate as ConstraintMixin).constraints.horizontal
   if (parent && 'layoutMode' in parent && parent.layoutMode === "VERTICAL") {
@@ -398,14 +396,11 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
 
     outerClass = "autolayoutVchild"
 
-    if (lastGroupParent && bounds) {
+    if (lastGroupParent) {
       outer["padding-bottom"] = `${lastGroupParent.height - bounds.height - (node.y - lastGroupParent.y)}px`
     }
 
-    const siblings = node.parent!.children
-    const sibIndex = siblings.indexOf(node as SceneNode)
     if (sibIndex > 0) {
-      const prevSibling = siblings[sibIndex-1]
       if (lastGroupParent && bounds) {
         outer["margin-top"] = `${-lastGroupParent.height + (node.y - lastGroupParent.y)}px`
       } else {
@@ -414,12 +409,16 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
     } else if (lastGroupParent && lastGroupParent.parent!.children.indexOf(lastGroupParent) !== 0) {
       outer["margin-top"] = `${parent.itemSpacing}px`
     }
-  } else {
-    if (bounds != null) {
-      inner["margin-top"] = `${bounds.top}px`
-      inner["margin-bottom"] = `${bounds.bottom}px`
-      inner["min-height"] = `${bounds.height}px`
+
+    if (node.type === "FRAME" || node.type === "COMPONENT" || node.type === "INSTANCE") {
+      if (node.layoutMode === "NONE") {
+        outer["min-height"] = `${bounds.height}px`
+      }
     }
+  } else {
+    inner["margin-top"] = `${bounds.top}px`
+    inner["margin-bottom"] = `${bounds.bottom}px`
+    inner["min-height"] = `${bounds.height}px`
   }
 
   if ('layoutMode' in node && node.layoutMode !== "NONE") {
@@ -427,36 +426,26 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
   }
 
   if (cHorizontal === "STRETCH") {
-    if (bounds != null) {
-      inner["margin-left"] = `${bounds.left}px`
-      inner["margin-right"] = `${bounds.right}px`
-      inner["flex-grow"] = 1
-    }
+    inner["margin-left"] = `${bounds.left}px`
+    inner["margin-right"] = `${bounds.right}px`
+    inner["flex-grow"] = 1
   } else if (cHorizontal === "MAX") {
     outer["justify-content"] = "flex-end"
-    if (bounds != null) {
-      inner["margin-right"] = `${bounds.right}px`
-      inner["width"] = `${bounds.width}px`
-      inner["min-width"] = `${bounds.width}px`
-    }
+    inner["margin-right"] = `${bounds.right}px`
+    inner["width"] = `${bounds.width}px`
+    inner["min-width"] = `${bounds.width}px`
   } else if (cHorizontal === "CENTER") {
     outer["justify-content"] = "center"
-    if (bounds != null) {
-      inner["width"] = `${bounds.width}px`
-      if (bounds.left && bounds.right) inner["margin-left"] = `${bounds.left - bounds.right}px`
-    }
+    inner["width"] = `${bounds.width}px`
+    if (bounds.left && bounds.right) inner["margin-left"] = `${bounds.left - bounds.right}px`
   } else if (cHorizontal === "SCALE") {
-    if (bounds != null) {
-      const parentWidth = bounds.left + bounds.width + bounds.right
-      inner["width"] = `${bounds.width * 100 / parentWidth}%`
-      inner["margin-left"] = `${bounds.left * 100 / parentWidth}%`
-    }
+    const parentWidth = bounds.left + bounds.width + bounds.right
+    inner["width"] = `${bounds.width * 100 / parentWidth}%`
+    inner["margin-left"] = `${bounds.left * 100 / parentWidth}%`
   } else {
-    if (bounds != null) {
-      inner["margin-left"] = `${bounds.left}px`
-      inner["width"] = `${bounds.width}px`
-      inner["min-width"] = `${bounds.width}px`
-    }
+    inner["margin-left"] = `${bounds.left}px`
+    inner["width"] = `${bounds.width}px`
+    inner["min-width"] = `${bounds.width}px`
   }
 
   if (node.type === "TEXT") {
