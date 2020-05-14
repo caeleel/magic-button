@@ -83,12 +83,7 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
     return `<link href="https://fonts.googleapis.com/css2?family=${fontName}&display=swap" rel="stylesheet">`
   })).join("")
 
-  for (let frameId in data.frameIdToHtml) {
-    const path = data.frameIdToPath[frameId]
-    if (path == null) {
-      throw new Error(`No path for frame id ${frameId}`)
-    }
-
+  for (let path in data.pathToHtml) {
     const content = `<html><head>
     <title>${path}</title>
     <style>
@@ -105,6 +100,21 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
       width: 100%;
       pointer-events: none;
     }
+
+    .desktop {
+      display: none;
+    }
+
+    @media only screen and (min-width: 1024px) {
+      .desktop {
+        display: block;
+      }
+
+      .mobile {
+        display: none;
+      }
+    }
+
     .autolayoutVchild {
       width: 100%;
       display: flex;
@@ -124,16 +134,12 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
     </head>
     ${fontLoadingHTML}
     ${serializeRuntime(data)}
-    ${data.frameIdToHtml[frameId]}
+    <body>${data.pathToHtml[path]}</body>
     </html>`
 
     const hash = sha1(content)
     site.files[path] = hash
     site.blobs[hash] = content
-
-    if (frameId === data.startFrameId) {
-      site.files["index.html"] = hash
-    }
   }
 
   for (let imageHash in data.images) {
@@ -153,7 +159,6 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
 
 function App() {
   const [conversionResult, setConversionResult] = useState<ConversionResult | null>(null)
-  const [previewContent, setPreviewContent] = useState("")
   const [token, setToken] = useState("")
   const [siteId, setSiteId] = useState("")
   const [deployed, setDeployed] = useState(false)
@@ -174,7 +179,6 @@ function App() {
         console.log("conversion-result", msg.content)
         const result: ConversionResult = msg.content
         setConversionResult(result)
-        setPreviewContent(result.frameIdToHtml[result.startFrameId])
       }
     }
     window.addEventListener("message", handleMessage)

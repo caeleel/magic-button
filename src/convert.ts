@@ -8,7 +8,7 @@ export interface FontInUse {
 }
 
 export interface ConversionResult {
-  frameIdToHtml: {[id: string]: string}
+  pathToHtml: {[path: string]: string}
   images: {[hash: string]: ImageToUpload}
   fonts: {[name: string]: boolean}
   startFrameId: string
@@ -30,6 +30,7 @@ function h(tagName: string, name: string, style: CSS, layout: Layout, eventHandl
 let images: ConversionResult["images"]
 let fonts: ConversionResult["fonts"]
 let frameIdToPath: ConversionResult["frameIdToPath"]
+let frameIdToSize: { [id: string]: string } = {}
 let actions: ConversionResult["actions"]
 
 function nameToPath(name: string): string {
@@ -41,6 +42,8 @@ export async function convert(node: PageNode): Promise<ConversionResult> {
   images = {}
   fonts = {}
   frameIdToPath = {}
+  frameIdToSize = {}
+  const pathToFrameId: { [path: string]: string } = {}
   actions = []
 
   // Build the routing table
@@ -50,7 +53,26 @@ export async function convert(node: PageNode): Promise<ConversionResult> {
       case "COMPONENT":
       case "FRAME": {
         const path = nameToPath(pageChild.name)
+
+        if (pathToFrameId[path]) {
+          const otherFrame = pathToFrameId[path]
+          if (frameIdToSize[otherFrame] === "mobile") {
+            // this path already has a mobile version, skip it
+            continue
+          }
+
+          if (pageChild.width < (figma.getNodeById(otherFrame) as LayoutMixin).width) {
+            frameIdToSize[pageChild.id] = "mobile"
+            frameIdToPath[pageChild.id] = path
+            continue
+          } else {
+            frameIdToSize[otherFrame] = "mobile"
+          }
+        }
+
+        frameIdToSize[pageChild.id] = "desktop"
         frameIdToPath[pageChild.id] = path
+        pathToFrameId[path] = pageChild.id
         break
       }
     }
@@ -80,8 +102,8 @@ export async function convert(node: PageNode): Promise<ConversionResult> {
     throw new Error("No start frame found! Page must contain a frame!")
   }
 
-  const frameIdToHtml = await convertPage(node)
-  return {frameIdToHtml, images, fonts, frameIdToPath, startFrameId: startFrame.id, actions}
+  const pathToHtml = await convertPage(node)
+  return {pathToHtml, images, fonts, frameIdToPath, startFrameId: startFrame.id, actions}
 }
 
 async function convertNode(node: BaseNode): Promise<string> {
@@ -140,11 +162,19 @@ async function convertChildren(children: ReadonlyArray<BaseNode>): Promise<strin
   return (await Promise.all(allChildren.map(convertNode))).join("\n")
 }
 
-async function convertPage(node: PageNode): Promise<ConversionResult["frameIdToHtml"]> {
-  let data: ConversionResult["frameIdToHtml"] = {}
+async function convertPage(node: PageNode): Promise<ConversionResult["pathToHtml"]> {
+  let data: ConversionResult["pathToHtml"] = {}
   for (let child of node.children) {
+    const path = frameIdToPath[child.id]
+    if (!path) continue
+
     if (child.type === "INSTANCE" || child.type === "COMPONENT" || child.type === "FRAME") {
-      data[child.id] = await convertTopLevelFrame(child)
+      const result = await convertTopLevelFrame(child)
+      if (data[path]) {
+        data[path] += result
+      } else {
+        data[path] = result
+      }
     }
   }
   return data
@@ -198,7 +228,7 @@ async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNo
   const events = eventHandlingAttributes(node.reactions)
   if (events.length > 0) style["cursor"] = "pointer"
 
-  return `<body ${events} style="${toStyleString(style)}">${await convertChildren(node.children)}</body>`
+  return `<div class="${frameIdToSize[node.id]}" ${events} style="width: 100%; ${toStyleString(style)}">${await convertChildren(node.children)}</div>`
 }
 
 async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
@@ -584,13 +614,13 @@ function getOpacityStyle(node: BlendMixin): CSS {
   }
 }
 
-function getEffectsStyle(node: BlendMixin): CSS {
+function getEffectsStyle(node: BaseNode & BlendMixin): CSS {
   const style: CSS = {}
 
   for (const effect of node.effects) {
     if (!effect.visible) continue
     if (effect.type === "DROP_SHADOW" || effect.type === "INNER_SHADOW") {
-      style["box-shadow"] = `${effect.type === "INNER_SHADOW" ? "inset " : ""}${effect.offset.x}px ${effect.offset.y}px ${effect.radius}px ${colorToCSS(effect.color, effect.color.a)}`
+      style[`${node.type === "TEXT" ? "text" : "box"}-shadow`] = `${effect.type === "INNER_SHADOW" ? "inset " : ""}${effect.offset.x}px ${effect.offset.y}px ${effect.radius}px ${colorToCSS(effect.color, effect.color.a)}`
     } else if (effect.type === "BACKGROUND_BLUR") {
       style["backdrop-filter"] = `blur(${effect.radius}px)`
     }
@@ -639,17 +669,12 @@ async function getStrokeStyleForPaints(width: number, paints: ReadonlyArray<Pain
 }
 
 async function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): Promise<CSS> {
-  const ret: CSS = {}
-
-  const backgroundParts: string[] = []
-
   for (let paint of paints) {
     if (!paint.visible) continue
 
     switch (paint.type) {
       case "SOLID": {
-        backgroundParts.push(colorToCSS(paint.color, paint.opacity || 1.0))
-        break
+        return { "background-color": colorToCSS(paint.color, paint.opacity || 1.0) }
       }
 
       case "IMAGE": {
@@ -660,8 +685,8 @@ async function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): Promis
 
           // TODO(jlfwong): Support images other than .pngs
           const path = `/images/${hash}.png`
-          backgroundParts.push(`url(${path}) no-repeat top left/contain`)
-          images[hash] = {bytes, path}
+          images[hash] = { bytes, path }
+          return { "background": `url(${path}) no-repeat top left/contain` }
         }
       }
 
@@ -674,9 +699,5 @@ async function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): Promis
     }
   }
 
-  if (backgroundParts.length > 0) {
-    ret['background'] = backgroundParts.join(",")
-  }
-
-  return ret
+  return {}
 }
