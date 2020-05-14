@@ -163,10 +163,11 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
 }
 
 function App() {
-  const [conversionResult, setConversionResult] = useState<ConversionResult | null>(null)
   const [token, setToken] = useState("")
   const [siteId, setSiteId] = useState("")
   const [deployed, setDeployed] = useState(false)
+  const [deploying, setDeploying] = useState(false)
+  const [loaded, setLoaded] = useState(false)
   const [sites, setSites] = useState<Site[]>([])
 
   useEffect(() => {
@@ -182,8 +183,7 @@ function App() {
         return
       } else if (msg.type == "conversion-result") {
         console.log("conversion-result", msg.content)
-        const result: ConversionResult = msg.content
-        setConversionResult(result)
+        deploySite(msg.content)
       }
     }
     window.addEventListener("message", handleMessage)
@@ -192,7 +192,7 @@ function App() {
     }
   })
 
-  const deploySite = async () => {
+  const deploySite = async (conversionResult: ConversionResult) => {
     if (conversionResult === null) return
 
     let site = siteId
@@ -245,6 +245,7 @@ function App() {
       return
     }
 
+    setDeploying(false)
     setDeployed(true)
   }
 
@@ -259,6 +260,7 @@ function App() {
     }
     const result = await resp.json()
     setSites(result.map((x: any) => ({ id: x.site_id, url: x.url })))
+    setLoaded(true)
   }
 
   const createNewSite = async (tok: string): Promise<string> => {
@@ -307,6 +309,12 @@ function App() {
     }
   }
 
+  const deploy = () => {
+    setDeploying(true)
+    // delay slightly so we start showing progress bar
+    setTimeout(() => parent.postMessage({ pluginMessage: { type: "run" } }, '*'), 100)
+  }
+
   const sitesToChoose = [...sites, { id: "new", url: "Create new site" }]
   let selected = "new"
   let url = ""
@@ -318,19 +326,26 @@ function App() {
     }
   }
 
+  if (selected !== siteId) {
+    setSiteId(selected)
+  }
+
   return <div>
     <div>
       {token === "" && <>
         <div id="copy-connect">Connect your Netlify account to start deploying your Figma designs as live sites!</div>
         <button onClick={tryConnect}>Connect</button>
       </>}
-      {token !== "" && !deployed && <>
+      {loaded && !deploying && token !== "" && !deployed && <>
         <span id="copy-select-site">Where would you like to deploy your site?</span>
         <select id="site" value={selected} onChange={changeSite}>
           {sitesToChoose.map((site) => <option key={site.id} value={site.id}>{site.url}</option>)}
         </select>
       </>}
-      {token !== "" && !deployed && <button onClick={() => deploySite()}>Make Magic</button>}
+      {loaded && !deploying && token !== "" && !deployed && <button onClick={deploy}>Make Magic</button>}
+      {deploying && <div className="progressWrap">
+        <div className="progress" />
+      </div>}
       {deployed && <>
         <div id="copy-success">Congrats, your site is now live!</div>
         {/* <a id="site" href={url} onClick={() => window.open(url)}>Visit site</a> */}
