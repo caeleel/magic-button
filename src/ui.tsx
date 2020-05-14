@@ -80,7 +80,7 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
   }
 
   let fontLoadingHTML = (Object.keys(data.fonts).map(fontName => {
-    return `<link href="https://fonts.googleapis.com/css2?family=${fontName}" rel="stylesheet">`
+    return `<link href="https://fonts.googleapis.com/css2?family=${fontName}&display=swap" rel="stylesheet">`
   })).join("")
 
   for (let frameId in data.frameIdToHtml) {
