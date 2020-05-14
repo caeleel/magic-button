@@ -138,6 +138,10 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
 
   for (let imageHash in data.images) {
     const img = data.images[imageHash]
+    if (imageHash[0] === '_') {
+      // this is not a real hash, recompute the sha1
+      imageHash = sha1(Buffer.from(img.bytes))
+    }
     site.files[img.path] = imageHash
     site.blobs[imageHash] = img.bytes
   }

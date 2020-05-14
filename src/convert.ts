@@ -225,6 +225,10 @@ function arrayBufferToString(buffer: ArrayBuffer): string {
 }
 
 async function convertRectangle(node: RectangleNode): Promise<string> {
+  if (node.rotation !== 0) {
+    return await convertShape(node)
+  }
+
   const style: CSS = {
     ...getOpacityStyle(node),
     ...getEffectsStyle(node),
@@ -242,14 +246,27 @@ async function convertRectangle(node: RectangleNode): Promise<string> {
 async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string> {
   // We don't include opacity here because it gets baked into the node
 
+  const events = eventHandlingAttributes(node.reactions)
+  const layout = getLayoutStyle(node)
+  let style: CSS = getOpacityStyle(node)
+  if (events.length > 0) style["cursor"] = "pointer"
+
   try {
     const svg = await node.exportAsync({format: 'SVG'})
-    const events = eventHandlingAttributes(node.reactions)
-    let style: CSS = {}
-    if (events.length > 0) style["cursor"] = "pointer"
-    return h("div", node.name, {}, getLayoutStyle(node), events, arrayBufferToString(svg))
-  } catch(e) {
-    console.error("Failed to convert shape", node, e)
+    return h("div", node.name, style, layout, events, arrayBufferToString(svg))
+  } catch (e) {
+    console.error("Failed to convert shape to SVG, trying PNG", node, e)
+  }
+
+  try {
+    const png = await node.exportAsync({ format: 'PNG' })
+    const hash = `_${Math.random()}`
+    const path = `/images/${hash}`
+    images[hash] = { bytes: png, path }
+    style["background-image"] = `url(${path})`
+    return h("div", node.name, style, layout, events, "")
+  } catch (e) {
+    console.error("Failed to convert shape to PNG", node, e)
     return ""
   }
 }
