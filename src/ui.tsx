@@ -110,6 +110,11 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
       display: flex;
       pointer-events: none;
     }
+    .autolayoutHchild {
+      height: 100%;
+      display: flex;
+      pointer-events: none;
+    }
     .innerDiv {
       position: relative;
       box-sizing: border-box;

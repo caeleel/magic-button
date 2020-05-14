@@ -225,7 +225,7 @@ async function convertRectangle(node: RectangleNode): Promise<string> {
   const usePlaceholder = node.constraints.horizontal !== "STRETCH"
   const events = eventHandlingAttributes(node.reactions)
   if (events.length > 0) style["cursor"] = "pointer"
-  return h("div", node.name, style, layout, events, usePlaceholder ? `<div style="width: ${layout.inner.width}; height: ${node.height}px"></div>` : "")
+  return h("div", node.name, style, layout, events, usePlaceholder ? `<div style="width: ${node.width}; height: ${node.height}px"></div>` : "")
 }
 
 async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string> {
@@ -361,11 +361,16 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
   const y = node.absoluteTransform[1][2]
   let outerClass = 'outerDiv'
 
-  let parent = node.parent as BaseNode & LayoutMixin
+  let parent = node.parent as BaseNode & LayoutMixin & ChildrenMixin
   let lastGroupParent: GroupNode | null = null
+  let isFirstChild = parent.children.indexOf(node as SceneNode) === 0
+
   while (parent.type === "GROUP") {
     lastGroupParent = parent
-    parent = parent.parent as BaseNode & LayoutMixin
+    parent = parent.parent as BaseNode & LayoutMixin & ChildrenMixin
+    if (parent.type !== "FRAME") {
+      isFirstChild = isFirstChild && (parent.children.indexOf(lastGroupParent) === 0)
+    }
   }
 
   let px = parent.absoluteTransform[0][2]
@@ -387,11 +392,11 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
 
   const inner: { [key: string]: number | string } = {}
   const outer: { [key: string]: number | string } = {}
-  const siblings = node.parent!.children
-  const sibIndex = siblings.indexOf(node as SceneNode)
 
   let cHorizontal = (candidate as ConstraintMixin).constraints.horizontal
-  if (parent && 'layoutMode' in parent && parent.layoutMode === "VERTICAL") {
+  let vHorizontal = (candidate as ConstraintMixin).constraints.vertical
+
+  if ('layoutMode' in parent && parent.layoutMode === "VERTICAL") {
     cHorizontal = lastGroupParent ? lastGroupParent.layoutAlign : node.layoutAlign
 
     outerClass = "autolayoutVchild"
@@ -400,7 +405,7 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
       outer["padding-bottom"] = `${lastGroupParent.height - bounds.height - (node.y - lastGroupParent.y)}px`
     }
 
-    if (sibIndex > 0) {
+    if (!isFirstChild) {
       if (lastGroupParent && bounds) {
         outer["margin-top"] = `${-lastGroupParent.height + (node.y - lastGroupParent.y)}px`
       } else {
@@ -415,37 +420,82 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
         outer["min-height"] = `${bounds.height}px`
       }
     }
-  } else {
-    inner["margin-top"] = `${bounds.top}px`
-    inner["margin-bottom"] = `${bounds.bottom}px`
-    inner["min-height"] = `${bounds.height}px`
+  } else if ('layoutMode' in parent && parent.layoutMode === "HORIZONTAL") {
+    vHorizontal = lastGroupParent ? lastGroupParent.layoutAlign : node.layoutAlign
+
+    outerClass = "autolayoutHchild"
+
+    if (lastGroupParent) {
+      outer["padding-right"] = `${lastGroupParent.width - bounds.width - (node.x - lastGroupParent.x)}px`
+    }
+
+    if (!isFirstChild) {
+      if (lastGroupParent && bounds) {
+        outer["margin-left"] = `${-lastGroupParent.width + (node.x - lastGroupParent.x)}px`
+      } else {
+        outer["margin-left"] = `${parent.itemSpacing}px`
+      }
+    } else if (lastGroupParent && lastGroupParent.parent!.children.indexOf(lastGroupParent) !== 0) {
+      outer["margin-left"] = `${parent.itemSpacing}px`
+    }
   }
 
   if ('layoutMode' in node && node.layoutMode !== "NONE") {
+    inner["display"] = "flex"
+    if (node.layoutMode === "VERTICAL") {
+      inner["flex-direction"] = "column"
+    }
     inner["padding"] = `${node.verticalPadding}px ${node.horizontalPadding}px`
   }
 
-  if (cHorizontal === "STRETCH") {
-    inner["margin-left"] = `${bounds.left}px`
-    inner["margin-right"] = `${bounds.right}px`
-    inner["flex-grow"] = 1
-  } else if (cHorizontal === "MAX") {
-    outer["justify-content"] = "flex-end"
-    inner["margin-right"] = `${bounds.right}px`
-    inner["width"] = `${bounds.width}px`
-    inner["min-width"] = `${bounds.width}px`
-  } else if (cHorizontal === "CENTER") {
-    outer["justify-content"] = "center"
-    inner["width"] = `${bounds.width}px`
-    if (bounds.left && bounds.right) inner["margin-left"] = `${bounds.left - bounds.right}px`
-  } else if (cHorizontal === "SCALE") {
-    const parentWidth = bounds.left + bounds.width + bounds.right
-    inner["width"] = `${bounds.width * 100 / parentWidth}%`
-    inner["margin-left"] = `${bounds.left * 100 / parentWidth}%`
-  } else {
-    inner["margin-left"] = `${bounds.left}px`
-    inner["width"] = `${bounds.width}px`
-    inner["min-width"] = `${bounds.width}px`
+  if (outerClass !== "autolayoutHchild") {
+    if (cHorizontal === "STRETCH") {
+      inner["margin-left"] = `${bounds.left}px`
+      inner["margin-right"] = `${bounds.right}px`
+      inner["flex-grow"] = 1
+    } else if (cHorizontal === "MAX") {
+      outer["justify-content"] = "flex-end"
+      inner["margin-right"] = `${bounds.right}px`
+      inner["width"] = `${bounds.width}px`
+      inner["min-width"] = `${bounds.width}px`
+    } else if (cHorizontal === "CENTER") {
+      outer["justify-content"] = "center"
+      inner["width"] = `${bounds.width}px`
+      if (bounds.left && bounds.right) inner["margin-left"] = `${bounds.left - bounds.right}px`
+    } else if (cHorizontal === "SCALE") {
+      const parentWidth = bounds.left + bounds.width + bounds.right
+      inner["width"] = `${bounds.width * 100 / parentWidth}%`
+      inner["margin-left"] = `${bounds.left * 100 / parentWidth}%`
+    } else {
+      inner["margin-left"] = `${bounds.left}px`
+      inner["width"] = `${bounds.width}px`
+      inner["min-width"] = `${bounds.width}px`
+    }
+  }
+
+  if (outerClass !== "autolayoutVchild") {
+    if (vHorizontal === "STRETCH") {
+      inner["margin-top"] = `${bounds.top}px`
+      inner["margin-bottom"] = `${bounds.bottom}px`
+      inner["flex-grow"] = 1
+    } else if (vHorizontal === "MAX") {
+      outer["align-items"] = "flex-end"
+      inner["margin-bottom"] = `${bounds.bottom}px`
+      inner["height"] = `${bounds.height}px`
+      inner["min-height"] = `${bounds.height}px`
+    } else if (vHorizontal === "CENTER") {
+      outer["align-items"] = "center"
+      inner["height"] = `${bounds.height}px`
+      inner["margin-top"] = `${bounds.top - bounds.bottom}px`
+    } else if (vHorizontal === "SCALE") {
+      const parentWidth = bounds.top + bounds.height + bounds.bottom
+      inner["height"] = `${bounds.height * 100 / parentWidth}%`
+      inner["margin-top"] = `${bounds.top * 100 / parentWidth}%`
+    } else {
+      inner["margin-top"] = `${bounds.top}px`
+      inner["height"] = `${bounds.height}px`
+      inner["min-height"] = `${bounds.height}px`
+    }
   }
 
   if (node.type === "TEXT") {
