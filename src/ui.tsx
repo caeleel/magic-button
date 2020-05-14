@@ -105,6 +105,10 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
       display: none;
     }
 
+    .mobile {
+      overflow-x: hidden;
+    }
+
     @media only screen and (min-width: 1024px) {
       .desktop {
         display: block;
@@ -131,6 +135,7 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
       pointer-events: auto;
     }
     </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     </head>
     ${fontLoadingHTML}
     ${serializeRuntime(data)}
