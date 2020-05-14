@@ -8,11 +8,12 @@ export interface FontInUse {
 }
 
 export interface ConversionResult {
-  pathToHtml: {[path: string]: string}
-  images: {[hash: string]: ImageToUpload}
-  fonts: {[name: string]: boolean}
+  pathToHtml: { [path: string]: string }
+  hasMobileVersion: { [path: string]: boolean }
+  images: { [hash: string]: ImageToUpload }
+  fonts: { [name: string]: boolean }
   startFrameId: string
-  frameIdToPath: {[id: string]: string}
+  frameIdToPath: { [id: string]: string }
   actions: Action[]
 }
 
@@ -31,6 +32,7 @@ let images: ConversionResult["images"]
 let fonts: ConversionResult["fonts"]
 let frameIdToPath: ConversionResult["frameIdToPath"]
 let frameIdToSize: { [id: string]: string } = {}
+let hasMobileVersion: ConversionResult["hasMobileVersion"]
 let actions: ConversionResult["actions"]
 
 function nameToPath(name: string): string {
@@ -43,6 +45,7 @@ export async function convert(node: PageNode): Promise<ConversionResult> {
   fonts = {}
   frameIdToPath = {}
   frameIdToSize = {}
+  hasMobileVersion = {}
   const pathToFrameId: { [path: string]: string } = {}
   actions = []
 
@@ -60,6 +63,8 @@ export async function convert(node: PageNode): Promise<ConversionResult> {
             // this path already has a mobile version, skip it
             continue
           }
+
+          hasMobileVersion[path] = true
 
           if (pageChild.width < (figma.getNodeById(otherFrame) as LayoutMixin).width) {
             frameIdToSize[pageChild.id] = "mobile"
@@ -103,7 +108,7 @@ export async function convert(node: PageNode): Promise<ConversionResult> {
   }
 
   const pathToHtml = await convertPage(node)
-  return {pathToHtml, images, fonts, frameIdToPath, startFrameId: startFrame.id, actions}
+  return {pathToHtml, hasMobileVersion, images, fonts, frameIdToPath, startFrameId: startFrame.id, actions}
 }
 
 async function convertNode(node: BaseNode): Promise<string> {

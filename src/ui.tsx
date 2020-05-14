@@ -100,7 +100,7 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
       width: 100%;
       pointer-events: none;
     }
-
+    ${data.hasMobileVersion[path] ? `
     .desktop {
       display: none;
     }
@@ -114,7 +114,7 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
         display: none;
       }
     }
-
+    ` : ''}
     .autolayoutVchild {
       width: 100%;
       display: flex;
