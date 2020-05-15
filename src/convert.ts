@@ -246,6 +246,8 @@ async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Pro
   }
   const layout = getLayoutStyle(node)
 
+  await new Promise(resolve => setTimeout(resolve, 1));
+
   const usePlaceholder = node.constraints.horizontal !== "STRETCH" && node.layoutMode === "NONE"
   const children = await convertChildren(node.children)
   const content = usePlaceholder ? `<div style="width: ${layout.inner.width}; height: ${node.height}px"></div>` + children : children
@@ -286,11 +288,22 @@ async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string>
   let style: CSS = getOpacityStyle(node)
   if (events.length > 0) style["cursor"] = "pointer"
 
-  try {
-    const svg = await node.exportAsync({format: 'SVG'})
-    return h("div", node.name, style, layout, events, arrayBufferToString(svg))
-  } catch (e) {
-    console.error("Failed to convert shape to SVG, trying PNG", node, e)
+  let hasImage = false
+
+  for (const fill of node.fills as Paint[]) {
+    if (fill.type === "IMAGE") {
+      hasImage = true
+      break
+    }
+  }
+
+  if (!hasImage) {
+    try {
+      const svg = await node.exportAsync({ format: 'SVG' })
+      return h("div", node.name, style, layout, events, arrayBufferToString(svg))
+    } catch (e) {
+      console.error("Failed to convert shape to SVG, trying PNG", node, e)
+    }
   }
 
   try {

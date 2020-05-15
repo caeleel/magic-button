@@ -162,6 +162,27 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
   return site
 }
 
+const progressMessages = [
+  "Sprinkling pixie dust",
+  "Stirring cauldron",
+  "Waving wand",
+  "Gazing into crystal",
+  "Concocting elixir",
+  "Pulling rabbit out of hat",
+  "Eyeing a newt",
+  "Incanting spell",
+  "Pushing card up sleeve",
+  "Levitating",
+  "Straightening vials",
+  "Summoning spirit",
+  "Invoking the ancestors",
+]
+
+function randomMsg(): string {
+  const msgIdx = Math.floor(Math.random() * progressMessages.length)
+  return progressMessages[msgIdx]
+}
+
 function App() {
   const [token, setToken] = useState("")
   const [siteId, setSiteId] = useState("")
@@ -169,6 +190,7 @@ function App() {
   const [deploying, setDeploying] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [sites, setSites] = useState<Site[]>([])
+  const [progressText, setProgressText] = useState("")
 
   useEffect(() => {
     function handleMessage(ev: MessageEvent) {
@@ -195,7 +217,19 @@ function App() {
   const deploySite = async (conversionResult: ConversionResult) => {
     if (conversionResult === null) return
 
+    setProgressText(randomMsg())
+
     let site = siteId
+
+    let found = false
+    for (const site of sites) {
+      if (site.id === siteId) {
+        found = true
+        break
+      }
+    }
+    if (!found) site = ""
+
     if (site === "new" || site === "") {
       site = await createNewSite(token)
       if (site === "") return
@@ -313,6 +347,7 @@ function App() {
     setDeploying(true)
     // delay slightly so we start showing progress bar
     setTimeout(() => parent.postMessage({ pluginMessage: { type: "run" } }, '*'), 100)
+    setProgressText(randomMsg())
   }
 
   const sitesToChoose = [...sites, { id: "new", url: "Create new site" }]
@@ -324,10 +359,6 @@ function App() {
       url = site.url
       break
     }
-  }
-
-  if (selected !== siteId) {
-    setSiteId(selected)
   }
 
   return <div>
@@ -345,6 +376,7 @@ function App() {
       {loaded && !deploying && token !== "" && !deployed && <button onClick={deploy}>Make Magic</button>}
       {deploying && <div className="progressWrap">
         <div className="progress" />
+        <div className="text">{progressText}</div>
       </div>}
       {deployed && <>
         <div id="copy-success">Congrats, your site is now live!</div>

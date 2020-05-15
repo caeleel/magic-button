@@ -5,33 +5,48 @@ body {
   letter-spacing: 0.2px;
   color: #333;
 }
-.progressRwap {
+.progressWrap {
   background-color: #f2f2f2;
   height: 10px;
-  width: 400px;
+  width: 280px;
   margin: 0 auto;
   position: relative;
-  top: 20px;
+  top: 40px;
   margin-bottom: 20px;
 }
-
-.progressWrap div {
+.progress {
   background-color: #ffcc00;
   height: 10px;
   width: 0%;
   border-radius: 5px;
-  animation: loadbar 3s;
-  -webkit-animation: loadbar 3s;
+  animation: loadbar 10s;
+  -webkit-animation: loadbar 10s;
   -webkit-animation-fill-mode: forwards;
   animation-fill-mode: forwards;
+}
+.progressWrap .text {
+  text-align: center;
+  margin-top: 10px;
 }
 
 @-webkit-keyframes loadbar {
   0% {
     width: 0%;
   }
+  50% {
+    width: 80%;
+  }
+  75% {
+    width: 90%;
+  }
+  83% {
+    width: 95%;
+  }
+  88% {
+    width: 97%;
+  }
   100% {
-    width: 100%;
+    width: 99%;
   }
 }
 
@@ -39,8 +54,20 @@ body {
   0% {
     width: 0%;
   }
+  50% {
+    width: 80%;
+  }
+  75% {
+    width: 90%;
+  }
+  83% {
+    width: 95%;
+  }
+  88% {
+    width: 97%;
+  }
   100% {
-    width: 100%;
+    width: 99%;
   }
 }
 
