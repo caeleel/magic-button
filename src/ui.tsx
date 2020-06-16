@@ -85,7 +85,7 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
 
   for (let path in data.pathToHtml) {
     const content = `<html><head>
-    <title>${path}</title>
+    <title>${data.name}</title>
     <style>
     body {
       padding: 0;
@@ -136,6 +136,7 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
     }
     </style>
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    ${data.favicon && '<link rel="icon" href="favicon.ico"'}
     </head>
     ${fontLoadingHTML}
     ${serializeRuntime(data)}
@@ -155,6 +156,12 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
     }
     site.files[img.path] = imageHash
     site.blobs[imageHash] = img.bytes
+  }
+
+  if (data.favicon) {
+    const hash = sha1(Buffer.from(data.favicon))
+    site.files["favicon.ico"] = hash
+    site.blobs[hash] = data.favicon
   }
 
   console.log(site)

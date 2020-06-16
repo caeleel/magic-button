@@ -15,6 +15,8 @@ export interface ConversionResult {
   startFrameId: string
   frameIdToPath: { [id: string]: string }
   actions: Action[]
+  name: string
+  favicon: Uint8Array | null
 }
 
 function toStyleString(style: CSS): string {
@@ -107,8 +109,8 @@ export async function convert(node: PageNode): Promise<ConversionResult> {
     throw new Error("No start frame found! Page must contain a frame!")
   }
 
-  const pathToHtml = await convertPage(node)
-  return {pathToHtml, hasMobileVersion, images, fonts, frameIdToPath, startFrameId: startFrame.id, actions}
+  const result = await convertPage(node)
+  return {name: figma.currentPage.name, ...result, hasMobileVersion, images, fonts, frameIdToPath, startFrameId: startFrame.id, actions}
 }
 
 async function convertNode(node: BaseNode): Promise<string> {
@@ -148,14 +150,32 @@ async function convertNode(node: BaseNode): Promise<string> {
   }
 }
 
+function isVectorSubtree(node: ChildrenMixin): boolean {
+  for (const child of node.children) {
+    if (child.type !== "SLICE" && child.reactions.length > 0) {
+      return false
+    }
+    if (child.type === "GROUP" || child.type === "FRAME" || child.type === "INSTANCE" || child.type === "COMPONENT") {
+      if(!isVectorSubtree(child)) return false
+    } else if (child.type !== "VECTOR" && child.type !== "LINE" && 
+               child.type !== "STAR" && child.type !== "ELLIPSE" && child.type !== "BOOLEAN_OPERATION" &&
+               child.type !== "POLYGON" && child.type !== "SLICE") {
+      return false
+    }
+  }
+  return true
+}
+
 async function convertChildren(children: ReadonlyArray<BaseNode>): Promise<string> {
-  const allChildren: BaseNode[] = []
+  const allChildren: Promise<string>[] = []
   function appendChildren(children: ReadonlyArray<BaseNode>) {
     for (const child of children) {
-      if (child.type !== "GROUP") allChildren.push(child)
+      if (child.type !== "GROUP") allChildren.push(convertNode(child))
       else if (child.visible) {
-        if (child.parent && 'layoutMode' in child.parent && child.parent.layoutMode !== "NONE") {
-          allChildren.push(child)
+        if (isVectorSubtree(child)) {
+          allChildren.push(convertShape(child as BaseNode & DefaultShapeMixin))
+        } else if (child.parent && 'layoutMode' in child.parent && child.parent.layoutMode !== "NONE") {
+          allChildren.push(convertNode(child))
         } else {
           appendChildren(child.children)
         }
@@ -164,25 +184,31 @@ async function convertChildren(children: ReadonlyArray<BaseNode>): Promise<strin
   }
   appendChildren(children)
 
-  return (await Promise.all(allChildren.map(convertNode))).join("\n")
+  return (await Promise.all(allChildren)).join("\n")
 }
 
-async function convertPage(node: PageNode): Promise<ConversionResult["pathToHtml"]> {
-  let data: ConversionResult["pathToHtml"] = {}
+async function convertPage(node: PageNode): Promise<Pick<ConversionResult, 'favicon' | 'pathToHtml'>> {
+  const retval: Pick<ConversionResult, 'favicon' | 'pathToHtml'> = { favicon: null, pathToHtml: {} }
+  const data = retval.pathToHtml
+
   for (let child of node.children) {
     const path = frameIdToPath[child.id]
     if (!path) continue
 
     if (child.type === "INSTANCE" || child.type === "COMPONENT" || child.type === "FRAME") {
-      const result = await convertTopLevelFrame(child)
-      if (data[path]) {
-        data[path] += result
+      if (child.name === "favicon.ico") {
+        retval.favicon = await child.exportAsync({ format: 'PNG' })
       } else {
-        data[path] = result
+        const result = await convertTopLevelFrame(child)
+        if (data[path]) {
+          data[path] += result
+        } else {
+          data[path] = result
+        }
       }
     }
   }
-  return data
+  return retval
 }
 
 function eventHandlingAttributes(reactions: ReadonlyArray<Reaction>): string {
@@ -233,10 +259,12 @@ async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNo
   const events = eventHandlingAttributes(node.reactions)
   if (events.length > 0) style["cursor"] = "pointer"
 
-  return `<div class="${frameIdToSize[node.id]}" ${events} style="width: 100%; ${toStyleString(style)}">${await convertChildren(node.children)}</div>`
+  return `<div class="${frameIdToSize[node.id]}" ${events} style="width: 100%; height: 100%; ${toStyleString(style)}">${await convertChildren(node.children)}</div>`
 }
 
 async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
+  if (isVectorSubtree(node)) return await convertShape(node)
+
   const style: CSS = {
     ...getOpacityStyle(node),
     ...getEffectsStyle(node),
@@ -283,17 +311,19 @@ async function convertRectangle(node: RectangleNode): Promise<string> {
 async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string> {
   // We don't include opacity here because it gets baked into the node
 
-  const events = eventHandlingAttributes(node.reactions)
+  const events = node.reactions ? eventHandlingAttributes(node.reactions) : ''
   const layout = getLayoutStyle(node)
   let style: CSS = getOpacityStyle(node)
   if (events.length > 0) style["cursor"] = "pointer"
 
   let hasImage = false
 
-  for (const fill of node.fills as Paint[]) {
-    if (fill.type === "IMAGE") {
-      hasImage = true
-      break
+  if (node.fills) {
+    for (const fill of node.fills as Paint[]) {
+      if (fill.type === "IMAGE") {
+        hasImage = true
+        break
+      }
     }
   }
 
@@ -312,7 +342,7 @@ async function convertShape(node: BaseNode & DefaultShapeMixin): Promise<string>
     const path = `/images/${hash}`
     images[hash] = { bytes: png, path }
     style["background-image"] = `url(${path})`
-    return h("div", node.name, style, layout, events, "")
+    return h("div", node.name, style, layout, events, `<div style="width: ${node.width}; height: ${node.height}px"></div>`)
   } catch (e) {
     console.error("Failed to convert shape to PNG", node, e)
     return ""
@@ -584,11 +614,13 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
 
   if (outerClass !== "autolayoutVchild") {
     if (vHorizontal === "STRETCH") {
+      outer["height"] = "100%"
       inner["margin-top"] = `${bounds.top}px`
       inner["margin-bottom"] = `${bounds.bottom}px`
       inner["flex-grow"] = 1
     } else if (vHorizontal === "MAX") {
       outer["align-items"] = "flex-end"
+      outer["height"] = "100%"
       inner["margin-bottom"] = `${bounds.bottom}px`
       inner["height"] = `${bounds.height}px`
       inner["min-height"] = `${bounds.height}px`
@@ -651,6 +683,37 @@ function getRoundedRectangleStyle(node: RectangleCornerMixin): CSS {
   return {"border-radius": `${node.topLeftRadius}px ${node.topRightRadius}px ${node.bottomRightRadius}px ${node.bottomLeftRadius}px`}
 }
 
+function paintToLinearGradient(paint: GradientPaint) {
+  const transform = paint.gradientTransform
+  let rotation = 0
+  const a = transform[0][0]
+  const b = transform[0][1]
+  const c = transform[1][0]
+  const d = transform[1][1]
+
+  if (a != 0 || b != 0) {
+    const r = Math.sqrt(a * a + b * b)
+    rotation = (b > 0 ? Math.acos(a / r) : -Math.acos(a / r)) + Math.PI / 2
+  } else if (c != 0 || d != 0) {
+    const s = Math.sqrt(c * c + d * d);
+    rotation = Math.PI - (d > 0 ? Math.acos(-c / s) : -Math.acos(c / s));
+  }
+
+  const stops = paint.gradientStops.map((stop) => {
+    return `${colorToCSS(stop.color, stop.color.a)} ${Math.round(stop.position * 100)}%`
+  }).join(', ')
+  return `linear-gradient(${rotation}rad, ${stops})`
+}
+
+function paintToRadialGradient(paint: GradientPaint) {
+  const stops = paint.gradientStops.map((stop) => {
+    return `${colorToCSS(stop.color, stop.color.a)} ${Math.round(stop.position * 60)}%`
+  }).join(', ');
+
+  return `radial-gradient(${stops})`
+}
+
+
 async function getStrokeStyleForPaints(width: number, paints: ReadonlyArray<Paint>): Promise<CSS> {
   for (let paint of paints) {
     if (!paint.visible) continue
@@ -669,12 +732,14 @@ async function getStrokeStyleForPaints(width: number, paints: ReadonlyArray<Pain
           // TODO(jlfwong): Support images other than .pngs
           const path = `/images/${hash}.png`
           images[hash] = { bytes, path }
-          return { "border-image": `url(${path}) ${width} round`}
+          return { "border-width": `${width}px`, "border-style": "solid", "border-image": `url(${path}) 30%`}
         }
       }
 
       case "GRADIENT_LINEAR":
+        return { "border-width": `${width}px`, "border-style": "solid", "border-image": `${paintToLinearGradient(paint as GradientPaint)} 30%` }
       case "GRADIENT_RADIAL":
+        return { "border-width": `${width}px`, "border-style": "solid", "border-image": `${paintToRadialGradient(paint)} 30%` }
       case "GRADIENT_DIAMOND":
       case "GRADIENT_ANGULAR": {
         // TODO(jlfwong): Handle gradients
@@ -709,7 +774,9 @@ async function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): Promis
       }
 
       case "GRADIENT_LINEAR":
+        return { "background": paintToLinearGradient(paint as GradientPaint) }
       case "GRADIENT_RADIAL":
+        return { "background": paintToRadialGradient(paint) }
       case "GRADIENT_DIAMOND":
       case "GRADIENT_ANGULAR": {
         // TODO(jlfwong): Handle gradients
