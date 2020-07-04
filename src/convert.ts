@@ -253,7 +253,7 @@ async function convertAutolayoutGroup(node: GroupNode): Promise<string> {
 async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
   const style: CSS = {
     ...getOpacityStyle(node),
-    ...await getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
+    ...await getBackgroundStyleForPaints(node, 'fills' in node ? defaultForMixed(node.fills, []) : []),
   }
 
   const events = eventHandlingAttributes(node.reactions)
@@ -270,7 +270,7 @@ async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Pro
     ...getEffectsStyle(node),
     ...getRoundedRectangleStyle(node),
     ...await getStrokeStyleForPaints(node.strokeWeight, defaultForMixed(node.strokes, [])),
-    ...await getBackgroundStyleForPaints('fills' in node ? defaultForMixed(node.fills, []) : []),
+    ...await getBackgroundStyleForPaints(node, 'fills' in node ? defaultForMixed(node.fills, []) : []),
   }
   const layout = getLayoutStyle(node)
 
@@ -299,7 +299,7 @@ async function convertRectangle(node: RectangleNode): Promise<string> {
     ...getEffectsStyle(node),
     ...getRoundedRectangleStyle(node),
     ...await getStrokeStyleForPaints(node.strokeWeight, defaultForMixed(node.strokes, [])),
-    ...await getBackgroundStyleForPaints(defaultForMixed(node.fills, [])),
+    ...await getBackgroundStyleForPaints(node, defaultForMixed(node.fills, [])),
   }
   const layout = getLayoutStyle(node)
   const usePlaceholder = node.constraints.horizontal !== "STRETCH"
@@ -405,20 +405,15 @@ function numericWeightFromStyle(style: string): number {
   return 400
 }
 
-function convertText(node: TextNode): string {
-  // TODO(jlfwong): Handle text with character overrides
+function convertTextRange(node: TextNode, start: number, end: number): string {
+  const style: CSS = {}
 
-  const style = {
-    ...getOpacityStyle(node),
-    ...getEffectsStyle(node),
-  }
-  const color = colorFromPaints(defaultForMixed(node.fills, []))
+  const color = colorFromPaints(defaultForMixed(node.getRangeFills(start, end), []))
   if (color != null) {
     style['color'] = color
   }
 
-  const fontName = defaultForMixed(node.fontName, null)
-  node.absoluteTransform
+  const fontName = defaultForMixed(node.getRangeFontName(start, end), null)
   if (fontName != null) {
     let fontWeightNumeric = numericWeightFromStyle(fontName.style)
     let italic = (/italic/i).exec(fontName.style) != null
@@ -434,16 +429,65 @@ function convertText(node: TextNode): string {
     }
   }
 
-  style['text-align'] = node.textAlignHorizontal.toLowerCase()
+  const decoration = defaultForMixed(node.getRangeTextDecoration(start, end), null)
+  if (decoration === "UNDERLINE") {
+    style['text-decoration'] = 'underline'
+  } else if (decoration === "STRIKETHROUGH") {
+    style['text-decoration'] = 'line-through'
+  }
 
-  const fontSize = defaultForMixed(node.fontSize, null)
+  const fontSize = defaultForMixed(node.getRangeFontSize(start, end), null)
   if (fontSize != null) {
     style['font-size'] = `${fontSize}px`
   }
 
+  const textCase = defaultForMixed(node.getRangeTextCase(start, end), null)
+  if (textCase === "LOWER") {
+    style['text-transform'] = 'lowercase'
+  } else if (textCase === "UPPER") {
+    style['text-transform'] = 'uppercase'
+  } else if (textCase === "TITLE") {
+    style['text-transform'] = 'capitalize'
+  }
+
+  return `<span style='${toStyleString(style)}'>${node.characters.substring(start, end).replace("\n", "<br><br>")}</span>`
+}
+
+function convertText(node: TextNode): string {
+  const style = {
+    ...getOpacityStyle(node),
+    ...getEffectsStyle(node),
+  }
+
+  style['text-align'] = node.textAlignHorizontal.toLowerCase()
+
   const events = eventHandlingAttributes(node.reactions)
   if (events.length > 0) style["cursor"] = "pointer"
-  return h("div", node.name, style, getLayoutStyle(node), events, `<div>${node.characters.replace("\n", "<br>")}</div>`)
+
+  let content = ""
+  const numChars = node.characters.length
+  if (node.fills !== figma.mixed && node.fontSize !== figma.mixed && node.letterSpacing !== figma.mixed && 
+      node.lineHeight !== figma.mixed && node.textCase !== figma.mixed && node.textDecoration !== figma.mixed &&
+      node.fontName !== figma.mixed) {
+    content = convertTextRange(node, 0, numChars)
+  } else {
+    let start = 0
+    let end = 1
+    while (end < numChars) {
+      const check = end + 1
+      if (node.getRangeFills(start, check) === figma.mixed || node.getRangeFontSize(start, check) === figma.mixed ||
+          node.getRangeLetterSpacing(start, check) === figma.mixed || node.getRangeLineHeight(start, check) === figma.mixed ||
+          node.getRangeTextCase(start, check) === figma.mixed || node.getRangeTextDecoration(start, check) === figma.mixed ||
+          node.getRangeFontName(start, check) === figma.mixed) {
+        content += convertTextRange(node, start, end)
+        start = end
+      }
+      end++
+    }
+    content += convertTextRange(node, start, end)
+  }
+
+  return h("div", node.name, style, getLayoutStyle(node), events, `<div>${content}</div>`)
 }
 
 type CSS = { [key: string]: string | number }
@@ -751,7 +795,7 @@ async function getStrokeStyleForPaints(width: number, paints: ReadonlyArray<Pain
   return {}
 }
 
-async function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): Promise<CSS> {
+async function getBackgroundStyleForPaints(node: SceneNode, paints: ReadonlyArray<Paint>): Promise<CSS> {
   for (let paint of paints) {
     if (!paint.visible) continue
 
@@ -765,11 +809,34 @@ async function getBackgroundStyleForPaints(paints: ReadonlyArray<Paint>): Promis
         if (hash != null) {
           const img = figma.getImageByHash(hash)
           const bytes = await img.getBytesAsync()
+          const dv = new DataView(bytes.buffer, 0, 28)
 
           // TODO(jlfwong): Support images other than .pngs
           const path = `/images/${hash}.png`
           images[hash] = { bytes, path }
-          return { "background": `url(${path}) no-repeat top left/contain` }
+          if (paint.scaleMode === "FIT") {
+            return { "background": `url(${path}) no-repeat center center/contain` }
+          } else if (paint.scaleMode === "FILL") {
+            return { "background": `url(${path}) no-repeat center center/cover` }
+          } else if (paint.scaleMode === "TILE") {
+            const width = dv.getInt32(16) * paint.scalingFactor!
+            const height = dv.getInt32(20) * paint.scalingFactor!
+            return {
+              "background-image": `url(${path})`,
+              "background-repeat": 'repeat',
+              "background-size": `${width}px ${height}px`,
+            }
+          } else if (paint.scaleMode === "CROP") {
+            const transform = paint.imageTransform!
+            const fullWidth = node.width / transform[0][0]
+            const fullHeight = node.height / transform[1][1]
+            const xOff = fullWidth * transform[0][2]
+            const yOff = fullHeight * transform[1][2]
+
+            return {
+              "background": `url(${path}) no-repeat ${xOff}px ${-yOff}px/${fullWidth}px ${fullHeight}px`,
+            }
+          }
         }
       }
 
