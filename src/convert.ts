@@ -450,6 +450,13 @@ function convertTextRange(node: TextNode, start: number, end: number): string {
     style['text-transform'] = 'capitalize'
   }
 
+  const lineHeight = defaultForMixed(node.getRangeLineHeight(start, end), null)
+  if (lineHeight && lineHeight.unit === "PERCENT") {
+    style['line-height'] = `${lineHeight.value}%`
+  } else if (lineHeight && lineHeight.unit === "PIXELS") {
+    style['line-height'] = `${lineHeight.value}px`
+  }
+
   return `<span style='${toStyleString(style)}'>${node.characters.substring(start, end).replace("\n", "<br><br>")}</span>`
 }
 
@@ -617,17 +624,16 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
 
   if ('layoutMode' in node && node.layoutMode !== "NONE") {
     inner["display"] = "flex"
+    inner["padding"] = `${node.verticalPadding}px ${node.horizontalPadding}px`
     if (node.layoutMode === "VERTICAL") {
       inner["flex-direction"] = "column"
       if (node.constraints.vertical === "STRETCH") {
         inner["justify-content"] = "space-between"
       }
-      inner["padding"] = `${node.verticalPadding}px 0`
     } else {
       if (node.constraints.horizontal === "STRETCH") {
         inner["justify-content"] = "space-between"
       }
-      inner["padding"] = `0 ${node.horizontalPadding}px`
     }
   }
 
@@ -834,7 +840,7 @@ async function getBackgroundStyleForPaints(node: SceneNode, paints: ReadonlyArra
             const yOff = fullHeight * transform[1][2]
 
             return {
-              "background": `url(${path}) no-repeat ${xOff}px ${-yOff}px/${fullWidth}px ${fullHeight}px`,
+              "background": `url(${path}) no-repeat ${-xOff}px ${-yOff}px/${fullWidth}px ${fullHeight}px`,
             }
           }
         }

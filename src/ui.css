@@ -73,17 +73,16 @@ body {
 
 button {
   display: block;
-  background-color: #18A0FB;
+  background-color: #ffcc00;
   border: none;
   padding:8px 16px;
-  color: white;
   font-weight: 500;
   font-size: 14px;
   border-radius: 6px;
   letter-spacing: 1%;
   margin: 0 auto;
 }
-button:hover, button:active, button:focus { background-color: #1887D1; border: none; outline: 0; cursor: pointer; }
+button:hover, button:active, button:focus { background-color: #daae01; border: none; outline: 0; cursor: pointer; }
 
 #copy-select-site, #copy-success, #copy-connect {
   display: flex;
