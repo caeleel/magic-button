@@ -119,15 +119,9 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
       }
     }
     ` : ''}
-    .autolayoutVchild {
-      width: 100%;
-      display: flex;
+    .autolayoutHChild, .autolayoutVChild {
       pointer-events: none;
-    }
-    .autolayoutHchild {
-      height: 100%;
       display: flex;
-      pointer-events: none;
     }
     .innerDiv {
       position: relative;

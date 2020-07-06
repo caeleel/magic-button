@@ -639,16 +639,19 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
 
   if (outerClass !== "autolayoutHchild") {
     if (cHorizontal === "STRETCH") {
+      outer["width"] = "100%"
       inner["margin-left"] = `${bounds.left}px`
       inner["margin-right"] = `${bounds.right}px`
       inner["flex-grow"] = 1
     } else if (cHorizontal === "MAX") {
-      outer["justify-content"] = "flex-end"
+      outer["flex-direction"] = "column"
+      inner["align-self"] = "flex-end"
       inner["margin-right"] = `${bounds.right}px`
       inner["width"] = `${bounds.width}px`
       inner["min-width"] = `${bounds.width}px`
     } else if (cHorizontal === "CENTER") {
-      outer["justify-content"] = "center"
+      outer["flex-direction"] = "column"
+      inner["align-self"] = "center"
       inner["width"] = `${bounds.width}px`
       if (bounds.left && bounds.right) inner["margin-left"] = `${bounds.left - bounds.right}px`
     } else if (cHorizontal === "SCALE") {
@@ -669,13 +672,12 @@ function getLayoutStyle(node: BaseNode & LayoutMixin): Layout {
       inner["margin-bottom"] = `${bounds.bottom}px`
       inner["flex-grow"] = 1
     } else if (vHorizontal === "MAX") {
-      outer["align-items"] = "flex-end"
-      outer["height"] = "100%"
+      inner["align-self"] = "flex-end"
       inner["margin-bottom"] = `${bounds.bottom}px`
       inner["height"] = `${bounds.height}px`
       inner["min-height"] = `${bounds.height}px`
     } else if (vHorizontal === "CENTER") {
-      outer["align-items"] = "center"
+      outer["align-self"] = "center"
       inner["height"] = `${bounds.height}px`
       inner["margin-top"] = `${bounds.top - bounds.bottom}px`
     } else if (vHorizontal === "SCALE") {
