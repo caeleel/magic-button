@@ -106,12 +106,13 @@ function compileForNetlify(data: ConversionResult): PackagedWebsite {
     }
 
     .mobile {
+      display: flex;
       overflow-x: hidden;
     }
 
     @media only screen and (min-width: 1024px) {
       .desktop {
-        display: block;
+        display: flex;
       }
 
       .mobile {

@@ -254,12 +254,15 @@ async function convertTopLevelFrame(node: FrameNode | ComponentNode | InstanceNo
   const style: CSS = {
     ...getOpacityStyle(node),
     ...await getBackgroundStyleForPaints(node, 'fills' in node ? defaultForMixed(node.fills, []) : []),
+    width: '100%',
   }
+
+  if (node.layoutMode === "VERTICAL") style['flex-direction'] = 'column'
 
   const events = eventHandlingAttributes(node.reactions)
   if (events.length > 0) style["cursor"] = "pointer"
 
-  return `<div class="${frameIdToSize[node.id]}" ${events} style="width: 100%; height: 100%; ${toStyleString(style)}">${await convertChildren(node.children)}</div>`
+  return `<div class="${frameIdToSize[node.id]}" ${events} style="${toStyleString(style)}">${await convertChildren(node.children)}</div>`
 }
 
 async function convertFrame(node: FrameNode | ComponentNode | InstanceNode): Promise<string> {
